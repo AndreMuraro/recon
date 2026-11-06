@@ -1,0 +1,101 @@
+# golangci-lint v2. Strict by default: every linter here is on because it catches a
+# real class of bug or keeps the code idiomatic. Exceptions are narrow and explained.
+version: "2"
+
+linters:
+  default: standard  # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # Correctness
+    - asasalint
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forcetypeassert
+    - gosec
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - sqlclosecheck
+    # Idiom and modern Go
+    - copyloopvar
+    - errname
+    - exptostd
+    - gocritic
+    - intrange
+    - mirror
+    - modernize
+    - perfsprint
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    # Tests
+    - testableexamples
+    - thelper
+    - tparallel
+    # Readability
+    - asciicheck
+    - gocognit
+    - godot
+    - misspell
+    - nakedret
+    - nolintlint
+    - whitespace
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment  # field order follows meaning, not padding
+    gocritic:
+      enabled-tags: [diagnostic, performance, style]
+      disabled-checks:
+        - unnamedResult  # named results only where they document something
+    gocognit:
+      min-complexity: 20
+    exhaustive:
+      default-signifies-exhaustive: false
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: error-return
+        - name: error-strings
+        - name: receiver-naming
+        - name: unexported-return
+        - name: unused-parameter
+        - name: context-as-argument
+        - name: early-return
+  exclusions:
+    presets:
+      - std-error-handling  # writes to stdout/stderr and Close in defers
+    rules:
+      - path: _test\.go
+        linters: [gocognit]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - github.com/AndreMuraro/recon

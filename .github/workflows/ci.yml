@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# No job gets more than it needs; nothing here can publish.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOVULNCHECK_VERSION: v1.9.0
+  ZIZMOR_VERSION: "1.32.0"
+  GORELEASER_VERSION: v2.20.0
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod  # go.sum appears with the first dependency
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a  # v9.3.0
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: go.mod and go.sum are tidy
+        run: go mod tidy -diff
+      - name: go.sum matches the Go checksum database
+        # Entries are re-derived through proxy.golang.org and sum.golang.org, so a go.sum
+        # written without the checksum database (or edited by hand) is caught here.
+        run: |
+          if [ -f go.sum ]; then cp go.sum go.sum.committed; rm go.sum; fi
+          go mod download all
+          go mod tidy
+          if [ -f go.sum.committed ]; then diff go.sum.committed go.sum; fi
+      - name: Workflow security (zizmor)
+        run: pipx run "zizmor==${ZIZMOR_VERSION}" --offline --format github .github/workflows/
+
+  test:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        go: ["1.26.x", "1.27.x"]  # the two supported Go releases
+        include:
+          - os: macos-latest
+            go: "1.27.x"
+          - os: windows-latest
+            go: "1.27.x"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: go.mod
+      - run: go vet ./...
+      - run: go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out
+
+  fuzz:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+      - name: Run every fuzz target for 30 seconds
+        # go test -fuzz takes one target in one package, so each is run on its own.
+        run: |
+          for pkg in $(go list ./...); do
+            for target in $(go test -list '^Fuzz' "$pkg" | grep '^Fuzz' || true); do
+              echo "::group::$pkg $target"
+              go test -run='^$' -fuzz="^${target}\$" -fuzztime=30s "$pkg"
+              echo "::endgroup::"
+            done
+          done
+
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+      - name: Known vulnerabilities in reachable code (govulncheck)
+        run: go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # GoReleaser reads the tags
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+      - name: Release configuration is valid, and a snapshot builds for every platform
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de  # v7.3.0
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --snapshot --clean --skip=sbom
+      - name: The binary runs
+        run: |
+          ./dist/recon_linux_amd64_v1/recon version
+          ./dist/recon_linux_amd64_v1/recon version | grep -q '^recon '

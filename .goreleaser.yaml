@@ -1,0 +1,41 @@
+# GoReleaser v2. Static binaries for six platforms, built reproducibly, with checksums
+# and an SBOM per archive. Build provenance is attested in the release workflow.
+version: 2
+
+project_name: recon
+
+builds:
+  - id: recon
+    main: ./cmd/recon
+    binary: recon
+    env:
+      - CGO_ENABLED=0  # static; DuckDB support will ship as a separate cgo build
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"  # identical inputs give identical binaries
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  disable: true  # release notes come from CHANGELOG.md
+
+release:
+  draft: false
+  prerelease: auto

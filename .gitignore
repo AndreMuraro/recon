@@ -1,0 +1,12 @@
+# Build output
+/recon
+/recon.exe
+/dist/
+
+# Test and coverage output
+*.test
+coverage.out
+coverage.html
+
+# Local settings and secrets
+.env
