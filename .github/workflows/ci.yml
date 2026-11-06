@@ -126,7 +126,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: "1.27.x"
-          cache-dependency-path: go.mod
+          cache: false  # these binaries mirror a release; no cache a pull request could have written
       - name: Release configuration is valid, and a snapshot builds for every platform
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de  # v7.3.0
         with:
