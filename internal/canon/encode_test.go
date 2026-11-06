@@ -371,7 +371,7 @@ func FuzzDecimalCanonicalForm(f *testing.F) {
 			t.Fatalf("%q is not stable: re-encodes as %q", text, reenc)
 		}
 		whole, frac, _ := strings.Cut(strings.TrimPrefix(text, "-"), ".")
-		if int32(len(frac)) != scale || (len(whole) > 1 && whole[0] == '0') {
+		if len(frac) != int(scale) || (len(whole) > 1 && whole[0] == '0') {
 			t.Fatalf("%q (from %q at scale %d) is not canonical", text, s, scale)
 		}
 		if strings.HasPrefix(text, "-") && strings.Trim(whole+frac, "0") == "" {
