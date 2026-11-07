@@ -9,7 +9,10 @@ import (
 	"github.com/AndreMuraro/recon/internal/tolerance"
 )
 
-func TestDuckDBQuoteIdent(t *testing.T) {
+// dialects lists every dialect, for the tests that apply to all of them.
+var dialects = []Dialect{DuckDB{}, Postgres{}}
+
+func TestQuoteIdent(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
 		"id":         `"id"`,
@@ -17,9 +20,11 @@ func TestDuckDBQuoteIdent(t *testing.T) {
 		`we"ird`:     `"we""ird"`,
 		"select":     `"select"`,
 	}
-	for in, want := range tests {
-		if got := (DuckDB{}).QuoteIdent(in); got != want {
-			t.Errorf("QuoteIdent(%q) = %s, want %s", in, got, want)
+	for _, d := range dialects {
+		for in, want := range tests {
+			if got := d.QuoteIdent(in); got != want {
+				t.Errorf("%s: QuoteIdent(%q) = %s, want %s", d.Name(), in, got, want)
+			}
 		}
 	}
 }
@@ -48,46 +53,73 @@ func TestRowTextReadsColumnsThroughTheMapping(t *testing.T) {
 	}
 }
 
-func TestDuckDBRejectsUnknownTypes(t *testing.T) {
+func TestRejectsUnknownTypes(t *testing.T) {
 	t.Parallel()
-	for _, typ := range []canon.Type{canon.TypeInvalid, canon.TypeString + 1} {
-		if _, err := (DuckDB{}).ValueText(canon.Column{Name: "x", Type: typ}, `"x"`); !errors.Is(err, ErrUnsupported) {
-			t.Errorf("ValueText(%v) error = %v, want ErrUnsupported", typ, err)
+	for _, d := range dialects {
+		for _, typ := range []canon.Type{canon.TypeInvalid, canon.TypeString + 1} {
+			if _, err := d.ValueText(canon.Column{Name: "x", Type: typ}, `"x"`); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("%s: ValueText(%v) error = %v, want ErrUnsupported", d.Name(), typ, err)
+			}
 		}
 	}
 }
 
-// TestDuckDBUsesTheReferenceConstants checks that the SQL embeds the exact values the Go
-// encoder uses, so the two cannot drift apart silently. The conformance test checks the
-// results on a real engine.
-func TestDuckDBUsesTheReferenceConstants(t *testing.T) {
+// TestUsesTheReferenceConstants checks that each dialect's SQL embeds the exact values the
+// Go encoder uses, so the two cannot drift apart silently. The conformance tests check the
+// results on real engines.
+func TestUsesTheReferenceConstants(t *testing.T) {
 	t.Parallel()
 	abs := tolerance.Tolerance{Abs: 1e-6}
 	rel := tolerance.Tolerance{Rel: 1e-9}
+	exactFormat := map[string]string{
+		"duckdb":   "printf('%.16e'",
+		"postgres": "'9.9999999999999999EEEE'",
+	}
+	nullToken := map[string]string{"duckdb": `'\N'`, "postgres": `E'\\N'`}
 	tests := []struct {
 		name string
 		col  canon.Column
-		want []string
+		want func(Dialect) []string
 	}{
-		{"exact float", canon.Column{Type: canon.TypeFloat}, []string{"printf('%.16e'", exactFloatText(0)}},
-		{"absolute bucket", canon.Column{Type: canon.TypeFloat, Tolerance: abs}, []string{floatLiteral(abs.AbsWidth()), "4503599627370496"}},
-		{"relative bucket", canon.Column{Type: canon.TypeFloat, Tolerance: rel}, []string{floatLiteral(rel.LogWidth()), "'~0~'", "'~-~'"}},
-		{"decimal scale", canon.Column{Type: canon.TypeDecimal, Scale: 7}, []string{"DECIMAL(38, 7)"}},
-		{"NULL token", canon.Column{Type: canon.TypeString}, []string{`'\N'`}},
+		{"exact float", canon.Column{Type: canon.TypeFloat}, func(d Dialect) []string {
+			return []string{exactFormat[d.Name()], exactFloatText(0)}
+		}},
+		{"absolute bucket", canon.Column{Type: canon.TypeFloat, Tolerance: abs}, func(Dialect) []string {
+			return []string{floatLiteral(abs.AbsWidth()), floatLiteral(abs.AbsLimit())}
+		}},
+		{"relative bucket", canon.Column{Type: canon.TypeFloat, Tolerance: rel}, func(Dialect) []string {
+			return []string{floatLiteral(rel.LogWidth()), "'~0~'", "'~-~'"}
+		}},
+		{"decimal scale", canon.Column{Type: canon.TypeDecimal, Scale: 7}, func(Dialect) []string {
+			return []string{"(38, 7)"}
+		}},
+		{"NULL token", canon.Column{Type: canon.TypeString}, func(d Dialect) []string {
+			return []string{nullToken[d.Name()]}
+		}},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.col.Name = "x"
-			sql, err := (DuckDB{}).ValueText(tt.col, `"x"`)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, w := range tt.want {
-				if !strings.Contains(sql, w) {
-					t.Errorf("SQL does not contain %q:\n%s", w, sql)
+	for _, d := range dialects {
+		for _, tt := range tests {
+			t.Run(d.Name()+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+				col := tt.col
+				col.Name = "x"
+				sql, err := d.ValueText(col, `"x"`)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-		})
+				for _, w := range tt.want(d) {
+					if !strings.Contains(sql, w) {
+						t.Errorf("SQL does not contain %q:\n%s", w, sql)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestPostgresHash60(t *testing.T) {
+	t.Parallel()
+	if got, want := (Postgres{}).Hash60("t"), "CAST(CAST('x' || substr(md5(t), 1, 15) AS bit(60)) AS bigint)"; got != want {
+		t.Errorf("Hash60 = %s, want %s", got, want)
 	}
 }

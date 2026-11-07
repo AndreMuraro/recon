@@ -17,7 +17,7 @@ $ recon diff \
 # exit code 1
 ```
 
-> **Status: early development.** The canonical encoder, tolerance buckets and the DuckDB dialect are built and tested against the real engine. The `diff` command shown above is the design target ([ADR 0001](docs/adr/0001-comparison-model.md)) and doesn't exist yet.
+> **Status: early development.** The canonical encoder, tolerance buckets and the DuckDB and PostgreSQL dialects are built and tested against the real engines. The `diff` command shown above is the design target ([ADR 0001](docs/adr/0001-comparison-model.md)) and doesn't exist yet.
 
 ## How it works
 
@@ -30,7 +30,7 @@ $ recon diff \
 
 | Engine | Driver | Static binary | Status |
 |---|---|---|---|
-| PostgreSQL | pgx | yes | planned |
+| PostgreSQL 14+ | pgx | yes | SQL dialect conforms (15–18 in CI); driver planned |
 | DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | SQL dialect conforms; driver planned |
 | Snowflake | gosnowflake | yes | planned |
 | Databricks | databricks-sql-go | yes | planned |
@@ -56,6 +56,9 @@ go test -run='^$' -fuzz=FuzzNoFalseNegatives ./internal/tolerance   # fuzz one t
 # conformance against a real DuckDB (the CLI from PyPI, hash-pinned)
 python3 -m venv .venv && .venv/bin/pip install --require-hashes --no-deps -r .github/requirements/duckdb-cli.txt
 RECON_DUCKDB=.venv/bin/duckdb go test -count=1 -run Conformance ./internal/dialect
+
+# conformance against a Postgres you can reach with psql
+RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" go test -count=1 -run Conformance ./internal/dialect
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -21,19 +21,25 @@ import (
 )
 
 // The conformance test runs each dialect's SQL on a real engine and checks, value by
-// value, that it produces exactly what the Go reference encoder produces. Engines are
-// reached through their command-line clients, so the test needs no driver and no cgo:
+// value, that it produces exactly what the Go reference encoder produces (ADR 0003).
+// Engines are reached through their command-line clients, so the test needs no driver
+// and no cgo. Each engine is named by an environment variable holding its CLI command:
 //
 //	RECON_DUCKDB=duckdb go test ./internal/dialect -run Conformance
+//	RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" go test ./internal/dialect -run Conformance
 //
-// Without the variable the test is skipped. CI installs a pinned DuckDB CLI and runs it.
+// Without the variable, that engine's test is skipped. CI runs every engine.
+//
+// This file holds the engine-independent part: generated values and the comparison.
+// engines_test.go describes each engine.
 
-// testColumn is one column of the conformance table: its canonical spec, its engine type,
-// and a generator of raw values.
+// testColumn is one column of the conformance table: its canonical spec, what engines
+// need to declare it, and a generator of raw values.
 type testColumn struct {
-	spec    canon.Column
-	sqlType string
-	gen     func(r *rand.Rand) raw
+	spec      canon.Column
+	precision int  // TypeDecimal: total digits of the engine type
+	zoned     bool // TypeTimestamp: TIMESTAMPTZ rather than TIMESTAMP
+	gen       func(r *rand.Rand) raw
 }
 
 // raw is a generated value before it becomes a canon.Value and a SQL literal.
@@ -55,17 +61,17 @@ const (
 
 func conformanceColumns() []testColumn {
 	return []testColumn{
-		{canon.Column{Name: "i", Type: canon.TypeInt}, "BIGINT", genInt},
-		{canon.Column{Name: "d", Type: canon.TypeDecimal, Scale: 4}, "DECIMAL(18, 4)", genDecimal(14, 4)},
-		{canon.Column{Name: "d0", Type: canon.TypeDecimal}, "DECIMAL(38, 0)", genDecimal(30, 0)},
-		{canon.Column{Name: "f", Type: canon.TypeFloat}, "DOUBLE", genFloat(absTol)},
-		{canon.Column{Name: "f_abs", Type: canon.TypeFloat, Tolerance: tolerance.Tolerance{Abs: absTol}}, "DOUBLE", genFloat(absTol)},
-		{canon.Column{Name: "f_rel", Type: canon.TypeFloat, Tolerance: tolerance.Tolerance{Rel: relTol}}, "DOUBLE", genFloat(absTol)},
-		{canon.Column{Name: "b", Type: canon.TypeBool}, "BOOLEAN", genBool},
-		{canon.Column{Name: "dt", Type: canon.TypeDate}, "DATE", genDate},
-		{canon.Column{Name: "ts", Type: canon.TypeTimestamp}, "TIMESTAMP", genTimestamp(false)},
-		{canon.Column{Name: "tstz", Type: canon.TypeTimestamp}, "TIMESTAMPTZ", genTimestamp(true)},
-		{canon.Column{Name: "s", Type: canon.TypeString}, "VARCHAR", genString},
+		{spec: canon.Column{Name: "i", Type: canon.TypeInt}, gen: genInt},
+		{spec: canon.Column{Name: "d", Type: canon.TypeDecimal, Scale: 4}, precision: 18, gen: genDecimal(14, 4)},
+		{spec: canon.Column{Name: "d0", Type: canon.TypeDecimal}, precision: 38, gen: genDecimal(30, 0)},
+		{spec: canon.Column{Name: "f", Type: canon.TypeFloat}, gen: genFloat(absTol)},
+		{spec: canon.Column{Name: "f_abs", Type: canon.TypeFloat, Tolerance: tolerance.Tolerance{Abs: absTol}}, gen: genFloat(absTol)},
+		{spec: canon.Column{Name: "f_rel", Type: canon.TypeFloat, Tolerance: tolerance.Tolerance{Rel: relTol}}, gen: genFloat(absTol)},
+		{spec: canon.Column{Name: "b", Type: canon.TypeBool}, gen: genBool},
+		{spec: canon.Column{Name: "dt", Type: canon.TypeDate}, gen: genDate},
+		{spec: canon.Column{Name: "ts", Type: canon.TypeTimestamp}, gen: genTimestamp(false)},
+		{spec: canon.Column{Name: "tstz", Type: canon.TypeTimestamp}, zoned: true, gen: genTimestamp(true)},
+		{spec: canon.Column{Name: "s", Type: canon.TypeString}, gen: genString},
 	}
 }
 
@@ -205,76 +211,17 @@ func (c testColumn) value(t *testing.T, v *raw) canon.Value {
 	return out
 }
 
-// duckdbLiteral renders a raw value as a DuckDB literal of the column's engine type.
-func (c testColumn) duckdbLiteral(v *raw) string {
-	if v.null {
-		return "NULL"
-	}
-	switch c.spec.Type {
-	case canon.TypeInt:
-		return fmt.Sprintf("CAST(%d AS BIGINT)", v.i)
-	case canon.TypeDecimal:
-		return fmt.Sprintf("CAST('%s' AS %s)", v.dec, c.sqlType)
-	case canon.TypeFloat:
-		switch {
-		case math.IsNaN(v.f):
-			return "CAST('nan' AS DOUBLE)"
-		case math.IsInf(v.f, 0):
-			return fmt.Sprintf("CAST('%s' AS DOUBLE)", map[bool]string{true: "inf", false: "-inf"}[v.f > 0])
-		}
-		return fmt.Sprintf("CAST('%s' AS DOUBLE)", floatLiteral(v.f))
-	case canon.TypeBool:
-		return strings.ToUpper(strconv.FormatBool(v.b))
-	case canon.TypeDate:
-		return "DATE '" + v.t.Format(time.DateOnly) + "'"
-	case canon.TypeTimestamp:
-		if c.sqlType == "TIMESTAMPTZ" {
-			return "TIMESTAMPTZ '" + v.t.In(v.zone).Format("2006-01-02 15:04:05.000000-07:00") + "'"
-		}
-		return "TIMESTAMP '" + v.t.Format("2006-01-02 15:04:05.000000") + "'"
-	case canon.TypeString:
-		return "'" + strings.ReplaceAll(v.s, "'", "''") + "'"
-	case canon.TypeInvalid:
-	}
-	panic("unknown type")
-}
-
-// runDuckDB runs a script with the DuckDB CLI named by RECON_DUCKDB (a path, optionally
-// followed by arguments) and returns the rows of its last query, as JSON objects.
-func runDuckDB(t *testing.T, script string) []map[string]any {
+// runConformance builds a table of generated rows on the engine, has the dialect compute
+// every column's canonical text and each row's text and checksum there, and compares them
+// with the Go reference.
+func runConformance(t *testing.T, e engine) {
 	t.Helper()
-	cli := strings.Fields(os.Getenv("RECON_DUCKDB"))
+	cli := strings.Fields(os.Getenv(e.envVar))
 	if len(cli) == 0 {
-		t.Skip("set RECON_DUCKDB to a DuckDB CLI to run the DuckDB conformance test")
+		t.Skipf("set %s to a %s CLI command to run this test", e.envVar, e.name)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, cli[0], append(cli[1:], "-json")...) //nolint:gosec // the command comes from the test's own environment
-	cmd.Stdin = strings.NewReader(script)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("duckdb: %v\n%s", err, stderr.String())
-	}
-	// The CLI prints one JSON array per statement that returns rows; keep the last.
-	var rows []map[string]any
-	dec := json.NewDecoder(&stdout)
-	for {
-		var result []map[string]any
-		if err := dec.Decode(&result); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			t.Fatalf("duckdb output is not a sequence of JSON arrays: %v", err)
-		}
-		rows = result
-	}
-	return rows
-}
-
-func TestDuckDBConformance(t *testing.T) {
-	t.Parallel()
 	const rows = 4000
-	d := DuckDB{}
+	d := e.dialect
 	cols := conformanceColumns()
 	specs := make([]canon.Column, len(cols))
 	for i, c := range cols {
@@ -285,13 +232,14 @@ func TestDuckDBConformance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The table and its contents.
+	// The table and its contents, from a fixed seed: every engine sees the same rows.
 	rng := rand.New(rand.NewPCG(2026, 11)) //nolint:gosec // deterministic test data, not security
 	data := make([][]raw, rows)
 	var script strings.Builder
-	script.WriteString("SET TimeZone = 'UTC';\nCREATE TABLE t (id INTEGER")
+	script.WriteString(e.setup)
+	fmt.Fprintf(&script, "CREATE %s t (id INTEGER", e.tableKind)
 	for _, c := range cols {
-		fmt.Fprintf(&script, ", %s %s", d.QuoteIdent(c.spec.Name), c.sqlType)
+		fmt.Fprintf(&script, ", %s %s", d.QuoteIdent(c.spec.Name), e.typeName(c))
 	}
 	script.WriteString(");\n")
 	for id := range rows {
@@ -299,12 +247,13 @@ func TestDuckDBConformance(t *testing.T) {
 		lits := make([]string, len(cols))
 		for j, c := range cols {
 			data[id][j] = c.gen(rng)
-			lits[j] = c.duckdbLiteral(&data[id][j])
+			lits[j] = e.literal(c, &data[id][j])
 		}
 		fmt.Fprintf(&script, "INSERT INTO t VALUES (%d, %s);\n", id, strings.Join(lits, ", "))
 	}
 
-	// One text expression per column, then the row's text and checksum.
+	// One text expression per column, then the row's text and checksum. The checksum is
+	// turned into text by the dialect itself, as an integer column.
 	selects := []string{"id"}
 	for j, c := range cols {
 		text, textErr := d.ValueText(c.spec, d.QuoteIdent(c.spec.Name))
@@ -321,12 +270,20 @@ func TestDuckDBConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selects = append(selects, rowText+" AS row_text", "CAST("+rowHash+" AS VARCHAR) AS row_hash")
-	fmt.Fprintf(&script, "SELECT %s FROM t ORDER BY id;\n", strings.Join(selects, ", "))
+	hashText, err := d.ValueText(canon.Column{Name: "hash", Type: canon.TypeInt}, rowHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selects = append(selects, rowText+" AS row_text", hashText+" AS row_hash")
 
-	got := runDuckDB(t, script.String())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+	got, err := e.run(ctx, cli, script.String(), strings.Join(selects, ", "))
+	if err != nil {
+		t.Fatalf("%s: %v", e.name, err)
+	}
 	if len(got) != rows {
-		t.Fatalf("duckdb returned %d rows, want %d", len(got), rows)
+		t.Fatalf("%s returned %d rows, want %d", e.name, len(got), rows)
 	}
 
 	columnEncoders := make([]*canon.Encoder, len(cols))
@@ -350,15 +307,15 @@ func TestDuckDBConformance(t *testing.T) {
 				continue
 			}
 			if onLogBucketEdge(c.spec.Tolerance, &data[id][j]) {
-				// ln is rounded differently across math libraries, so a value within
-				// about 1e-9 of a log-bucket edge can land on either side. That costs a
-				// row-level check, never a missed difference (ADR 0001).
+				// ln is rounded differently across math libraries, so a value within a few
+				// units in the last place of a log-bucket edge can land on either side. That
+				// costs a row-level check, never a missed difference (ADR 0001).
 				boundary++
 				rowComparable = false
 				continue
 			}
 			failures++
-			t.Errorf("row %d, column %q (%s): duckdb %q, reference %q", id, c.spec.Name, c.duckdbLiteral(&data[id][j]), text, want)
+			t.Errorf("row %d, column %q (%s): %s %q, reference %q", id, c.spec.Name, e.literal(c, &data[id][j]), e.name, text, want)
 		}
 		if !rowComparable {
 			continue
@@ -373,7 +330,7 @@ func TestDuckDBConformance(t *testing.T) {
 		}
 		if row["row_text"] != string(wantText) || row["row_hash"] != strconv.FormatUint(wantHash, 10) {
 			failures++
-			t.Errorf("row %d: duckdb %q (hash %v), reference %q (hash %d)", id, row["row_text"], row["row_hash"], wantText, wantHash)
+			t.Errorf("row %d: %s %q (hash %v), reference %q (hash %d)", id, e.name, row["row_text"], row["row_hash"], wantText, wantHash)
 		}
 		if failures > 20 {
 			t.Fatal("too many differences; stopping")
@@ -382,7 +339,35 @@ func TestDuckDBConformance(t *testing.T) {
 	if boundary > rows/1000 {
 		t.Errorf("%d values fell on a log-bucket edge; expected well under 0.1%%", boundary)
 	}
-	t.Logf("%d rows × %d columns matched the reference; %d values on a log-bucket edge", rows, len(cols), boundary)
+	t.Logf("%s: %d rows × %d columns matched the reference; %d values on a log-bucket edge",
+		e.name, rows, len(cols), boundary)
+}
+
+// commandOutput runs an engine's CLI with a script on stdin and returns what it printed.
+func commandOutput(ctx context.Context, cli []string, args []string, script string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, cli[0], append(cli[1:], args...)...) //nolint:gosec // the command comes from the test's own environment
+	cmd.Stdin = strings.NewReader(script)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("%w\n%s", err, stderr.String())
+	}
+	return stdout.Bytes(), nil
+}
+
+// lastJSONArray decodes a sequence of JSON arrays and returns the last one.
+func lastJSONArray(out []byte) ([]map[string]any, error) {
+	var rows []map[string]any
+	dec := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var result []map[string]any
+		if err := dec.Decode(&result); errors.Is(err, io.EOF) {
+			return rows, nil
+		} else if err != nil {
+			return nil, fmt.Errorf("output is not a sequence of JSON arrays: %w", err)
+		}
+		rows = result
+	}
 }
 
 // onLogBucketEdge reports whether v sits so close to a relative-tolerance bucket edge that

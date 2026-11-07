@@ -49,11 +49,28 @@ The first run failed on 55 of 4,000 relative-bucket values, all of them 5e-324.
   the run then matched on every value.
 - An encoding fixed by hand from documentation would have kept the bug.
 
+Postgres, added next, found one more: dividing the largest floats by a bucket width
+overflows, and Postgres raises an error where DuckDB returns infinity. Values are
+therefore compared against a precomputed limit, `Tolerance.AbsLimit()` (2^52 bucket
+widths, exact because it scales by a power of two), before any division.
+
+## Engines and versions
+
+| Engine | Client used by the test | Versions in CI |
+|---|---|---|
+| DuckDB | `duckdb` CLI from PyPI (`duckdb-cli`), hash-pinned | 2.0 |
+| PostgreSQL | `psql` from the runner, against the official image as a service container | 15, 16, 17, 18 (each major's latest minor) |
+
+Postgres 14 is the oldest the dialect supports, because from 14 `extract(epoch ...)`
+returns an exact numeric. It isn't tested, because it reaches end of life on
+2026-11-12. psql has no JSON output, so the test aggregates the rows with `json_agg`.
+Its session pins `TimeZone`, `DateStyle` and `extra_float_digits`, and the dialect writes
+backslash literals as `E'...'` strings, so no server setting can change the result.
+
 ## Consequences
 
 - Every new dialect comes with a conformance test against its engine, or it isn't
-  merged. Postgres can run in a CI service container. Snowflake and Databricks need
-  credentials, so they will run on demand or on a schedule rather than on every pull
-  request.
+  merged. Snowflake and Databricks need credentials, so they will run on demand or on a
+  schedule rather than on every pull request.
 - The CLIs are test tools only; recon itself will talk to engines through drivers.
   Conformance establishes what the SQL computes, whichever client sends it.

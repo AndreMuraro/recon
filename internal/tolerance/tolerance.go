@@ -19,9 +19,9 @@ import (
 // math.Log is comparable to the bucket width and the guarantee above cannot be kept.
 const MinRel = 1e-12
 
-// MaxIndex bounds |x/w| for absolute buckets. Below 2^52 the quotient is exact to within
-// one unit, so two values more than two bucket widths apart cannot round into one bucket.
-// Larger values are compared exactly instead.
+// MaxIndex bounds |x/w| for absolute buckets. Up to 2^52 the quotient is exact to within
+// half a unit, so two values more than two bucket widths apart cannot round into one
+// bucket. Larger values are compared exactly instead; see [Tolerance.AbsLimit].
 const MaxIndex = 1 << 52
 
 // ErrInvalid reports a tolerance that cannot be used.
@@ -106,11 +106,12 @@ func (t Tolerance) Bucket(x float64) Bucket {
 		return Bucket{kind: bucketNegInf}
 	}
 	if t.UsesAbsBuckets() {
-		q := x / t.AbsWidth()
-		if math.Abs(q) >= MaxIndex {
+		// Comparing x with the limit, rather than x/w with MaxIndex, never divides a huge
+		// value: engines such as Postgres raise an error on float overflow.
+		if math.Abs(x) >= t.AbsLimit() {
 			return Bucket{kind: bucketExact, exact: x}
 		}
-		return Bucket{kind: bucketIndex, index: int64(math.Floor(q))}
+		return Bucket{kind: bucketIndex, index: int64(math.Floor(x / t.AbsWidth()))}
 	}
 	if x == 0 {
 		return Bucket{kind: bucketZero}
@@ -145,6 +146,11 @@ func (t Tolerance) UsesAbsBuckets() bool { return t.Abs > 0 }
 
 // AbsWidth is the width of absolute buckets, Abs/2. SQL dialects use this exact value.
 func (t Tolerance) AbsWidth() float64 { return t.Abs / 2 }
+
+// AbsLimit is the magnitude from which values are compared exactly rather than bucketed:
+// MaxIndex absolute buckets. Multiplying by a power of two is exact, so this is the
+// precise point where |x / AbsWidth()| reaches MaxIndex. SQL dialects use this value.
+func (t Tolerance) AbsLimit() float64 { return MaxIndex * t.AbsWidth() }
 
 // LogWidth is the width of relative buckets on the natural-log scale, ln(1 + Rel/2). SQL
 // dialects use this exact value.
