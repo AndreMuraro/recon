@@ -57,7 +57,7 @@ that produces the same bytes:
 |---|---|
 | Integer | Base-10 digits |
 | Decimal | Fixed scale, taken from the wider side's declared scale; no exponent |
-| Float | Tolerance bucket (section 3), or shortest round-trip digits when compared exactly |
+| Float | Tolerance bucket (section 3), or, when compared exactly, 17 significant digits in scientific notation, correctly rounded (C's `%.16e`). Engines print shortest digits in different layouts (DuckDB prints 1e5 as `100000.0`); a printf format they can produce exactly |
 | Date | `YYYY-MM-DD` |
 | Timestamp | Microseconds since the Unix epoch in UTC; naive timestamps are read as UTC unless `--tz` says otherwise |
 | Boolean | `t` / `f` |
@@ -84,6 +84,9 @@ reconciled by hashing a **bucket** of each tolerant value instead of the value i
   its own bucket. The same argument holds on the log scale.
 - **Both:** a pair fails only if it's beyond both tolerances, so beyond ε in particular.
   The absolute bucket alone therefore guarantees no false negatives.
+
+The natural log is taken by `tolerance.LogAbs`, which works around Go's wrong
+`math.Log` on subnormal numbers (ADR 0003).
 
 The row-level pass applies the exact tolerance in Go. The checksum stage can only add
 work; it can never hide a difference.

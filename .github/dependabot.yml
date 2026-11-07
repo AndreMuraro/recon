@@ -10,3 +10,6 @@ updates:
     schedule: { interval: weekly }
     groups:
       actions: { patterns: ["*"] }
+  - package-ecosystem: pip
+    directory: /.github/requirements
+    schedule: { interval: weekly }

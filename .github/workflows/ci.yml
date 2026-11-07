@@ -99,6 +99,29 @@ jobs:
             done
           done
 
+  conformance:
+    # Each dialect's SQL, run on the real engine, must produce exactly what the Go
+    # reference encoder produces. Engines are reached through their official CLIs.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+      - name: Install the DuckDB CLI (hash-pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/duckdb"
+          "$RUNNER_TEMP/duckdb/bin/pip" install --require-hashes --no-deps -r .github/requirements/duckdb-cli.txt
+          "$RUNNER_TEMP/duckdb/bin/duckdb" -version
+          echo "RECON_DUCKDB=$RUNNER_TEMP/duckdb/bin/duckdb" >> "$GITHUB_ENV"
+      - name: DuckDB conformance
+        run: go test -count=1 -run Conformance -v ./internal/dialect
+
   vulnerabilities:
     runs-on: ubuntu-latest
     permissions:

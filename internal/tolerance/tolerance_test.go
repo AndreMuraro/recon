@@ -89,7 +89,7 @@ func TestBucketText(t *testing.T) {
 		{"absolute positive", abs, 1.2, "~2"},
 		{"absolute negative", abs, -1.2, "~-3"},
 		{"absolute negative zero", abs, math.Copysign(0, -1), "~0"},
-		{"too large for absolute", abs, 1e300, "=1e+300"},
+		{"too large for absolute", abs, 1e300, "=1.0000000000000001e+300"},
 		{"relative zero", rel, 0, "~0~"},
 		{"relative negative zero", rel, math.Copysign(0, -1), "~0~"},
 		{"relative positive", rel, 1, "~0"},
@@ -121,6 +121,19 @@ func TestBucketTextIsInjective(t *testing.T) {
 				t.Errorf("buckets %+v and %+v share text %q", prev, b, text)
 			}
 			seen[text] = b
+		}
+	}
+}
+
+// TestLogAbsOfSubnormals pins the workaround for math.Log on subnormals: the result must
+// agree with ln computed from the exact binary decomposition.
+func TestLogAbsOfSubnormals(t *testing.T) {
+	t.Parallel()
+	for _, x := range []float64{5e-324, -5e-324, 1e-320, 1e-310, math.Nextafter(smallestNormal, 0), smallestNormal, 1e-300, 1} {
+		frac, exp := math.Frexp(math.Abs(x))
+		want := math.Log(frac) + float64(exp)*math.Ln2
+		if got := LogAbs(x); math.Abs(got-want) > 1e-12*math.Abs(want)+1e-15 {
+			t.Errorf("LogAbs(%v) = %v, want %v", x, got, want)
 		}
 	}
 }
