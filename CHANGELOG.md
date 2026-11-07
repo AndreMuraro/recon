@@ -14,6 +14,9 @@ All notable changes are recorded here. The format follows
 - DuckDB SQL dialect (`internal/dialect`): canonical text and 60-bit checksums computed
   inside DuckDB, reading each side's columns through a mapping function, conformance-tested on the official DuckDB CLI over 4,000 generated rows
   and edge cases for every type (ADR 0003).
+- PostgreSQL SQL dialect (14 or later), conformance-tested on Postgres 15, 16, 17 and
+  18 in CI through psql. The conformance harness now runs the same generated rows on any
+  engine.
 - `recon version` and `recon help`.
 
 ### Changed
@@ -22,6 +25,9 @@ All notable changes are recorded here. The format follows
   them.
 
 ### Fixed
+- Absolute-tolerance buckets of huge floats divided before checking the limit, which
+  overflows in Postgres (an error, not infinity). Values are now compared with
+  `Tolerance.AbsLimit()` first.
 - Relative-tolerance buckets of subnormal numbers: Go's `math.Log` is wrong for them on
   amd64 (golang/go#56600), so `tolerance.LogAbs` scales them first. Found by the DuckDB
   conformance test.

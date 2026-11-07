@@ -75,7 +75,9 @@ That test, not this table, defines correctness.
 Checksums need exact equality, while tolerances are about closeness. The two are
 reconciled by hashing a **bucket** of each tolerant value instead of the value itself:
 
-- **Absolute tolerance ε:** hash `floor(x / w)` with w = ε/2. If two values land in the
+- **Absolute tolerance ε:** hash `floor(x / w)` with w = ε/2. Values at or beyond 2^52
+  widths are hashed exactly instead; this is checked before dividing, so huge values
+  never overflow (ADR 0003). If two values land in the
   same bucket, then |a − b| < w < ε. Turned around: any pair farther apart than ε lands
   in different buckets, so its segment is flagged. Within-tolerance pairs that straddle
   a bucket edge cost one extra row-level check and are then reported as equal. Halving ε

@@ -99,7 +99,7 @@ jobs:
             done
           done
 
-  conformance:
+  conformance-duckdb:
     # Each dialect's SQL, run on the real engine, must produce exactly what the Go
     # reference encoder produces. Engines are reached through their official CLIs.
     runs-on: ubuntu-latest
@@ -120,7 +120,41 @@ jobs:
           "$RUNNER_TEMP/duckdb/bin/duckdb" -version
           echo "RECON_DUCKDB=$RUNNER_TEMP/duckdb/bin/duckdb" >> "$GITHUB_ENV"
       - name: DuckDB conformance
-        run: go test -count=1 -run Conformance -v ./internal/dialect
+        run: go test -count=1 -run DuckDBConformance -v ./internal/dialect
+
+  conformance-postgres:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["15.19", "16.15", "17.11", "18.6"]  # the supported majors (14 ends 2026-11-12)
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          # A throwaway server reachable only from this job; no password to store.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      RECON_POSTGRES: psql postgresql://postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version: "1.27.x"
+          cache-dependency-path: go.mod
+      - run: $RECON_POSTGRES --no-psqlrc --tuples-only --command 'SELECT version()'
+      - name: Postgres conformance
+        run: go test -count=1 -run PostgresConformance -v ./internal/dialect
 
   vulnerabilities:
     runs-on: ubuntu-latest

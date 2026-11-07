@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/AndreMuraro/recon/internal/canon"
@@ -75,7 +74,7 @@ func (DuckDB) floatText(tol tolerance.Tolerance, x string) string {
 	case tol.UsesAbsBuckets():
 		q := fmt.Sprintf("(%s / %s)", x, floatLiteral(tol.AbsWidth()))
 		return fmt.Sprintf("CASE %s WHEN abs(%s) >= %s THEN '=' || %s ELSE '~' || CAST(CAST(floor(%s) AS BIGINT) AS VARCHAR) END",
-			special, q, strconv.FormatInt(tolerance.MaxIndex, 10), exact, q)
+			special, x, floatLiteral(tol.AbsLimit()), exact, q)
 	default:
 		index := func(abs string) string {
 			return fmt.Sprintf("CAST(CAST(floor(ln(%s) / %s) AS BIGINT) AS VARCHAR)", abs, floatLiteral(tol.LogWidth()))
