@@ -48,23 +48,12 @@ type Difference struct {
 
 // compareRows merge-joins two key-ordered row sets of the schema cols.
 func compareRows(cols []canon.Column, left, right []Row) ([]Difference, error) {
-	for _, s := range []struct {
-		name string
-		rows []Row
-	}{{"left", left}, {"right", right}} {
-		for i, r := range s.rows {
-			if len(r.Values) != len(cols) {
-				return nil, fmt.Errorf("%w: %s row %d has %d values for %d columns", ErrRows, s.name, r.Key, len(r.Values), len(cols))
-			}
-			if i > 0 && s.rows[i-1].Key >= r.Key {
-				if s.rows[i-1].Key == r.Key {
-					return nil, fmt.Errorf("%w: the %s side has key %d twice", ErrDuplicateKeys, s.name, r.Key)
-				}
-				return nil, fmt.Errorf("%w: %s rows are not in key order at %d", ErrRows, s.name, r.Key)
-			}
-		}
+	if err := checkRows("left", cols, left); err != nil {
+		return nil, err
 	}
-
+	if err := checkRows("right", cols, right); err != nil {
+		return nil, err
+	}
 	var out []Difference
 	i, j := 0, 0
 	for i < len(left) || j < len(right) {
@@ -76,25 +65,51 @@ func compareRows(cols []canon.Column, left, right []Row) ([]Difference, error) {
 			out = append(out, Difference{Key: right[j].Key, Kind: OnlyRight, Right: right[j].Values})
 			j++
 		default:
-			l, r := left[i], right[j]
-			var changed []string
-			for c, col := range cols {
-				eq, err := equalText(col, l.Values[c], r.Values[c])
-				if err != nil {
-					return nil, fmt.Errorf("key %d: column %q: %w", l.Key, col.Name, err)
-				}
-				if !eq {
-					changed = append(changed, col.Name)
-				}
+			changed, err := changedColumns(cols, &left[i], &right[j])
+			if err != nil {
+				return nil, err
 			}
 			if changed != nil {
-				out = append(out, Difference{Key: l.Key, Kind: Changed, Columns: changed, Left: l.Values, Right: r.Values})
+				out = append(out, Difference{Key: left[i].Key, Kind: Changed, Columns: changed, Left: left[i].Values, Right: right[j].Values})
 			}
 			i++
 			j++
 		}
 	}
 	return out, nil
+}
+
+// checkRows checks that rows have one value per column and strictly increasing keys.
+func checkRows(side string, cols []canon.Column, rows []Row) error {
+	for i, r := range rows {
+		if len(r.Values) != len(cols) {
+			return fmt.Errorf("%w: %s row %d has %d values for %d columns", ErrRows, side, r.Key, len(r.Values), len(cols))
+		}
+		switch {
+		case i == 0 || rows[i-1].Key < r.Key:
+		case rows[i-1].Key == r.Key:
+			return fmt.Errorf("%w: the %s side has key %d twice", ErrDuplicateKeys, side, r.Key)
+		default:
+			return fmt.Errorf("%w: %s rows are not in key order at %d", ErrRows, side, r.Key)
+		}
+	}
+	return nil
+}
+
+// changedColumns returns the names of the columns in which two rows with the same key
+// differ, or nil.
+func changedColumns(cols []canon.Column, l, r *Row) ([]string, error) {
+	var changed []string
+	for c, col := range cols {
+		eq, err := equalText(col, l.Values[c], r.Values[c])
+		if err != nil {
+			return nil, fmt.Errorf("key %d: column %q: %w", l.Key, col.Name, err)
+		}
+		if !eq {
+			changed = append(changed, col.Name)
+		}
+	}
+	return changed, nil
 }
 
 // nullText is the canonical text of NULL.

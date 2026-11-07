@@ -111,6 +111,11 @@ func (s *memorySide) Rows(_ context.Context, r Range) ([]Row, error) {
 	return out, nil
 }
 
+// testRand returns a deterministic generator, so that a failure can be replayed.
+func testRand(seed1, seed2 uint64) *rand.Rand {
+	return rand.New(rand.NewPCG(seed1, seed2)) //nolint:gosec // deterministic test data, not security
+}
+
 // record is one row of the test table, kept as plain Go values so that it can be written
 // both as canon.Values and as SQL literals.
 type record struct {

@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"math"
-	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,7 +93,7 @@ var duckdbTestEngine = testEngine{
 			readCLI: append(append(slices.Clip(cli), args...), "-readonly", db),
 		}
 	},
-	table: func(_ *testing.T, _ cliQuerier) string { return "t" + strconv.FormatUint(rand.Uint64(), 36) },
+	table: func(_ *testing.T, _ cliQuerier) string { return tableName("t") },
 }
 
 var postgresTestEngine = testEngine{
@@ -112,7 +112,7 @@ var postgresTestEngine = testEngine{
 	// The server is shared by every test: each table has its own name and is dropped.
 	table: func(t *testing.T, q cliQuerier) string {
 		t.Helper()
-		name := "recon_diff_" + strconv.FormatUint(rand.Uint64(), 36)
+		name := tableName("recon_diff_")
 		t.Cleanup(func() {
 			if _, err := q.run(context.Background(), "DROP TABLE IF EXISTS "+name+";"); err != nil {
 				t.Errorf("dropping %s: %v", name, err)
@@ -120,6 +120,13 @@ var postgresTestEngine = testEngine{
 		})
 		return name
 	},
+}
+
+var tables atomic.Int64
+
+// tableName returns a name no other table of this or a concurrent test run uses.
+func tableName(prefix string) string {
+	return fmt.Sprintf("%s%d_%d", prefix, os.Getpid(), tables.Add(1))
 }
 
 // load creates a table of recs and returns the side that reads it.
@@ -182,7 +189,7 @@ type engineCase struct {
 }
 
 func newEngineCase() engineCase {
-	r := rand.New(rand.NewPCG(2026, 11))
+	r := testRand(2026, 11)
 	left := genRecords(r, 3000, -15_000)
 	right, muts := mutate(r, left, 0.01)
 	return engineCase{left: left, right: right, muts: muts}
@@ -222,6 +229,7 @@ func checkAgainstModel(t *testing.T, c *engineCase, left, right Side) {
 }
 
 func runEngine(t *testing.T, e *testEngine) {
+	t.Helper()
 	t.Parallel()
 	q := e.open(t)
 	schema := testSchema(t)
@@ -229,8 +237,12 @@ func runEngine(t *testing.T, e *testEngine) {
 	left := e.load(t, q, schema, c.left)
 	right := e.load(t, q, schema, c.right)
 
-	t.Run("finds the changes", func(t *testing.T) { checkAgainstModel(t, &c, left, right) })
+	t.Run("finds the changes", func(t *testing.T) {
+		t.Parallel()
+		checkAgainstModel(t, &c, left, right)
+	})
 	t.Run("matches the model", func(t *testing.T) {
+		t.Parallel()
 		// The engine's checksums are the Go reference's, so a table equals its model
 		// after the first round.
 		res, err := Diff(t.Context(), schema, left, newMemorySide(t, schema, memRows(t, c.left)), engineOptions)

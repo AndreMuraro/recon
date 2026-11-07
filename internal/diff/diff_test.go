@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"math"
-	"math/rand/v2"
 	"slices"
 	"strconv"
 	"testing"
@@ -143,7 +142,7 @@ func TestDiffFindsEveryMutation(t *testing.T) {
 		{Branching: 16, RowThreshold: 64}, // wide
 	}
 	for seed := range uint64(8) {
-		r := rand.New(rand.NewPCG(seed, 1))
+		r := testRand(seed, 1)
 		recs := genRecords(r, 50+r.IntN(2000), r.Int64N(1e6)-5e5)
 		changed, muts := mutate(r, recs, []float64{0, 0.001, 0.02, 0.3}[seed%4])
 		for _, opts := range settings {
@@ -172,7 +171,7 @@ func TestDiffFindsEveryMutation(t *testing.T) {
 func TestDiffFetchesFewRows(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	r := rand.New(rand.NewPCG(42, 42))
+	r := testRand(42, 42)
 	recs := genRecords(r, 100_000, 0)
 	changed := slices.Clone(recs)
 	for _, i := range []int{17, 50_000, 99_999} {
@@ -197,7 +196,7 @@ func TestDiffFetchesFewRows(t *testing.T) {
 func TestDiffStopsAtMaxDifferences(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	r := rand.New(rand.NewPCG(7, 7))
+	r := testRand(7, 7)
 	recs := genRecords(r, 1000, 0)
 	res, err := Diff(context.Background(), schema,
 		newMemorySide(t, schema, memRows(t, recs)), newMemorySide(t, schema, nil),
@@ -213,7 +212,7 @@ func TestDiffStopsAtMaxDifferences(t *testing.T) {
 func TestDiffEdgeCases(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	r := rand.New(rand.NewPCG(3, 3))
+	r := testRand(3, 3)
 	recs := genRecords(r, 10, 0)
 	tests := []struct {
 		name        string
@@ -244,7 +243,7 @@ func TestDiffEdgeCases(t *testing.T) {
 func TestDiffRejectsDuplicateKeys(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	recs := genRecords(rand.New(rand.NewPCG(5, 5)), 3, 0)
+	recs := genRecords(testRand(5, 5), 3, 0)
 	dup := append(slices.Clone(recs), recs[1])
 	_, err := Diff(context.Background(), schema,
 		newMemorySide(t, schema, memRows(t, recs)), newMemorySide(t, schema, memRows(t, dup)), Options{})
@@ -262,7 +261,8 @@ type failingSide struct {
 var errQuery = errors.New("query failed")
 
 func (f *failingSide) Checksums(ctx context.Context, r Range, splits []int64) ([]Checksum, error) {
-	if f.n--; f.n < 0 {
+	f.n--
+	if f.n < 0 {
 		return nil, errQuery
 	}
 	return f.Side.Checksums(ctx, r, splits)
@@ -271,7 +271,7 @@ func (f *failingSide) Checksums(ctx context.Context, r Range, splits []int64) ([
 func TestDiffReturnsQueryErrors(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	r := rand.New(rand.NewPCG(9, 9))
+	r := testRand(9, 9)
 	recs := genRecords(r, 500, 0)
 	changed, _ := mutate(r, recs, 0.5)
 	left := &failingSide{Side: newMemorySide(t, schema, memRows(t, recs)), n: 3}
@@ -285,7 +285,7 @@ func TestDiffReturnsQueryErrors(t *testing.T) {
 func TestDiffHonoursCancellation(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	recs := genRecords(rand.New(rand.NewPCG(11, 11)), 100, 0)
+	recs := genRecords(testRand(11, 11), 100, 0)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	side := newMemorySide(t, schema, memRows(t, recs))
