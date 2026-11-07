@@ -214,7 +214,7 @@ func (c testColumn) value(t *testing.T, v *raw) canon.Value {
 // runConformance builds a table of generated rows on the engine, has the dialect compute
 // every column's canonical text and each row's text and checksum there, and compares them
 // with the Go reference.
-func runConformance(t *testing.T, e engine) {
+func runConformance(t *testing.T, e *engine) {
 	t.Helper()
 	cli := strings.Fields(os.Getenv(e.envVar))
 	if len(cli) == 0 {
@@ -344,7 +344,7 @@ func runConformance(t *testing.T, e engine) {
 }
 
 // commandOutput runs an engine's CLI with a script on stdin and returns what it printed.
-func commandOutput(ctx context.Context, cli []string, args []string, script string) ([]byte, error) {
+func commandOutput(ctx context.Context, cli, args []string, script string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, cli[0], append(cli[1:], args...)...) //nolint:gosec // the command comes from the test's own environment
 	cmd.Stdin = strings.NewReader(script)
 	var stdout, stderr bytes.Buffer

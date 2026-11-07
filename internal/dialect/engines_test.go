@@ -130,6 +130,12 @@ func postgresString(s string) string {
 	return "E'" + strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(s) + "'"
 }
 
+// psqlArgs runs a script from stdin, stops at the first error, and prints only rows.
+var psqlArgs = []string{
+	"--no-psqlrc", "--quiet", "--tuples-only", "--no-align",
+	"--set", "ON_ERROR_STOP=1", "--file", "-",
+}
+
 var postgresEngine = engine{
 	name:    "postgres",
 	envVar:  "RECON_POSTGRES",
@@ -142,8 +148,7 @@ var postgresEngine = engine{
 	run: func(ctx context.Context, cli []string, script, selectList string) ([]map[string]any, error) {
 		// psql has no JSON output, so the rows are aggregated into one JSON value.
 		script += "SELECT json_agg(q ORDER BY q.id) FROM (SELECT " + selectList + " FROM t) q;\n"
-		out, err := commandOutput(ctx, cli, []string{"--no-psqlrc", "--quiet", "--tuples-only", "--no-align",
-			"--set", "ON_ERROR_STOP=1", "--file", "-"}, script)
+		out, err := commandOutput(ctx, cli, psqlArgs, script)
 		if err != nil {
 			return nil, err
 		}
@@ -153,10 +158,10 @@ var postgresEngine = engine{
 
 func TestDuckDBConformance(t *testing.T) {
 	t.Parallel()
-	runConformance(t, duckdbEngine)
+	runConformance(t, &duckdbEngine)
 }
 
 func TestPostgresConformance(t *testing.T) {
 	t.Parallel()
-	runConformance(t, postgresEngine)
+	runConformance(t, &postgresEngine)
 }
