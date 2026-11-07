@@ -31,19 +31,24 @@ type Dialect interface {
 	Hash60(text string) string
 }
 
-// RowText returns the expression for the canonical text of a row. exprs holds one SQL
-// expression per column of enc, in the same order.
-func RowText(d Dialect, enc *canon.Encoder, exprs []string) (string, error) {
+// ColumnExpr returns the SQL expression that reads a column on one side: usually its
+// quoted name, or a different name when the two sides name a column differently.
+type ColumnExpr func(canon.Column) string
+
+// Quoted is the ColumnExpr that reads each column by its own name.
+func Quoted(d Dialect) ColumnExpr {
+	return func(c canon.Column) string { return d.QuoteIdent(c.Name) }
+}
+
+// RowText returns the expression for the canonical text of a row of enc's schema.
+func RowText(d Dialect, enc *canon.Encoder, expr ColumnExpr) (string, error) {
 	cols := enc.Columns()
-	if len(exprs) != len(cols) {
-		return "", fmt.Errorf("%d expressions for %d columns", len(exprs), len(cols))
-	}
 	parts := make([]string, 0, 2*len(cols)-1)
 	for i, col := range cols {
 		if i > 0 {
 			parts = append(parts, quoteString("|"))
 		}
-		text, err := d.ValueText(col, exprs[i])
+		text, err := d.ValueText(col, expr(col))
 		if err != nil {
 			return "", fmt.Errorf("%s: column %q: %w", d.Name(), col.Name, err)
 		}
@@ -53,8 +58,8 @@ func RowText(d Dialect, enc *canon.Encoder, exprs []string) (string, error) {
 }
 
 // RowHash returns the expression for the 60-bit checksum of a row; see [RowText].
-func RowHash(d Dialect, enc *canon.Encoder, exprs []string) (string, error) {
-	text, err := RowText(d, enc, exprs)
+func RowHash(d Dialect, enc *canon.Encoder, expr ColumnExpr) (string, error) {
+	text, err := RowText(d, enc, expr)
 	if err != nil {
 		return "", err
 	}

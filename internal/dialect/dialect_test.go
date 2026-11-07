@@ -24,17 +24,27 @@ func TestDuckDBQuoteIdent(t *testing.T) {
 	}
 }
 
-func TestRowTextNeedsOneExpressionPerColumn(t *testing.T) {
+func TestRowTextReadsColumnsThroughTheMapping(t *testing.T) {
 	t.Parallel()
 	enc, err := canon.NewEncoder([]canon.Column{{Name: "a", Type: canon.TypeInt}, {Name: "b", Type: canon.TypeInt}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RowText(DuckDB{}, enc, []string{`"a"`}); err == nil {
-		t.Error("RowText accepted one expression for two columns")
+	renamed := map[string]string{"a": `"left_a"`, "b": `"left_b"`}
+	sql, err := RowText(DuckDB{}, enc, func(c canon.Column) string { return renamed[c.Name] })
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := RowHash(DuckDB{}, enc, []string{`"a"`, `"b"`, `"c"`}); err == nil {
-		t.Error("RowHash accepted three expressions for two columns")
+	first, second := strings.Index(sql, `"left_a"`), strings.Index(sql, `"left_b"`)
+	if first < 0 || second < first || strings.Contains(sql, `"a"`) {
+		t.Errorf("columns not read through the mapping, in schema order:\n%s", sql)
+	}
+	quoted, err := RowHash(DuckDB{}, enc, Quoted(DuckDB{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(quoted, `"a"`) || !strings.HasPrefix(quoted, "CAST('0x' || substr(md5(") {
+		t.Errorf("unexpected hash expression:\n%s", quoted)
 	}
 }
 

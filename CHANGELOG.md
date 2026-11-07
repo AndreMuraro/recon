@@ -12,7 +12,7 @@ All notable changes are recorded here. The format follows
 - Float tolerances (absolute, relative or both) and tolerance buckets
   (`internal/tolerance`), fuzz-tested to never hide a difference beyond tolerance.
 - DuckDB SQL dialect (`internal/dialect`): canonical text and 60-bit checksums computed
-  inside DuckDB, conformance-tested on the official DuckDB CLI over 4,000 generated rows
+  inside DuckDB, reading each side's columns through a mapping function, conformance-tested on the official DuckDB CLI over 4,000 generated rows
   and edge cases for every type (ADR 0003).
 - `recon version` and `recon help`.
 

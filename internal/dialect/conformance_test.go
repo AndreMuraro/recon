@@ -87,9 +87,10 @@ func genInt(r *rand.Rand) raw {
 func genDecimal(wholeDigits, scale int) func(*rand.Rand) raw {
 	return func(r *rand.Rand) raw {
 		digits := func(n int) string {
+			const decimal = "0123456789"
 			var b strings.Builder
 			for range n {
-				b.WriteByte(byte('0' + r.IntN(10)))
+				b.WriteByte(decimal[r.IntN(len(decimal))])
 			}
 			return b.String()
 		}
@@ -171,7 +172,7 @@ func genString(r *rand.Rand) raw {
 }
 
 // value builds the canon.Value for a raw value of the column.
-func (c testColumn) value(t *testing.T, v raw) canon.Value {
+func (c testColumn) value(t *testing.T, v *raw) canon.Value {
 	t.Helper()
 	if v.null {
 		return canon.Null(c.spec.Type)
@@ -205,7 +206,7 @@ func (c testColumn) value(t *testing.T, v raw) canon.Value {
 }
 
 // duckdbLiteral renders a raw value as a DuckDB literal of the column's engine type.
-func (c testColumn) duckdbLiteral(v raw) string {
+func (c testColumn) duckdbLiteral(v *raw) string {
 	if v.null {
 		return "NULL"
 	}
@@ -298,27 +299,25 @@ func TestDuckDBConformance(t *testing.T) {
 		lits := make([]string, len(cols))
 		for j, c := range cols {
 			data[id][j] = c.gen(rng)
-			lits[j] = c.duckdbLiteral(data[id][j])
+			lits[j] = c.duckdbLiteral(&data[id][j])
 		}
 		fmt.Fprintf(&script, "INSERT INTO t VALUES (%d, %s);\n", id, strings.Join(lits, ", "))
 	}
 
 	// One text expression per column, then the row's text and checksum.
-	exprs := make([]string, len(cols))
 	selects := []string{"id"}
 	for j, c := range cols {
-		exprs[j] = d.QuoteIdent(c.spec.Name)
-		text, err := d.ValueText(c.spec, exprs[j])
-		if err != nil {
-			t.Fatal(err)
+		text, textErr := d.ValueText(c.spec, d.QuoteIdent(c.spec.Name))
+		if textErr != nil {
+			t.Fatal(textErr)
 		}
 		selects = append(selects, fmt.Sprintf("%s AS c%d", text, j))
 	}
-	rowText, err := RowText(d, enc, exprs)
+	rowText, err := RowText(d, enc, Quoted(d))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rowHash, err := RowHash(d, enc, exprs)
+	rowHash, err := RowHash(d, enc, Quoted(d))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +340,7 @@ func TestDuckDBConformance(t *testing.T) {
 		values := make([]canon.Value, len(cols))
 		rowComparable := true
 		for j, c := range cols {
-			values[j] = c.value(t, data[id][j])
+			values[j] = c.value(t, &data[id][j])
 			want, err := columnEncoders[j].AppendRow(nil, values[j:j+1])
 			if err != nil {
 				t.Fatal(err)
@@ -350,7 +349,7 @@ func TestDuckDBConformance(t *testing.T) {
 			if text == string(want) {
 				continue
 			}
-			if onLogBucketEdge(c.spec.Tolerance, data[id][j]) {
+			if onLogBucketEdge(c.spec.Tolerance, &data[id][j]) {
 				// ln is rounded differently across math libraries, so a value within
 				// about 1e-9 of a log-bucket edge can land on either side. That costs a
 				// row-level check, never a missed difference (ADR 0001).
@@ -359,7 +358,7 @@ func TestDuckDBConformance(t *testing.T) {
 				continue
 			}
 			failures++
-			t.Errorf("row %d, column %q (%s): duckdb %q, reference %q", id, c.spec.Name, c.duckdbLiteral(data[id][j]), text, want)
+			t.Errorf("row %d, column %q (%s): duckdb %q, reference %q", id, c.spec.Name, c.duckdbLiteral(&data[id][j]), text, want)
 		}
 		if !rowComparable {
 			continue
@@ -389,7 +388,7 @@ func TestDuckDBConformance(t *testing.T) {
 // onLogBucketEdge reports whether v sits so close to a relative-tolerance bucket edge that
 // logarithms rounded differently, by a few units in the last place, may put it on either
 // side. Different math libraries round ln differently; DuckDB uses the C library's.
-func onLogBucketEdge(tol tolerance.Tolerance, v raw) bool {
+func onLogBucketEdge(tol tolerance.Tolerance, v *raw) bool {
 	if tol.IsExact() || tol.UsesAbsBuckets() || v.null || v.f == 0 || math.IsNaN(v.f) || math.IsInf(v.f, 0) {
 		return false
 	}
