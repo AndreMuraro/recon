@@ -19,9 +19,10 @@ import (
 // math.Log is comparable to the bucket width and the guarantee above cannot be kept.
 const MinRel = 1e-12
 
-// maxIndex bounds |x/w| for absolute buckets. Below 2^52 the quotient is exact to within
+// MaxIndex bounds |x/w| for absolute buckets. Below 2^52 the quotient is exact to within
 // one unit, so two values more than two bucket widths apart cannot round into one bucket.
-const maxIndex = 1 << 52
+// Larger values are compared exactly instead.
+const MaxIndex = 1 << 52
 
 // ErrInvalid reports a tolerance that cannot be used.
 var ErrInvalid = errors.New("invalid tolerance")
@@ -104,9 +105,9 @@ func (t Tolerance) Bucket(x float64) Bucket {
 	case math.IsInf(x, -1):
 		return Bucket{kind: bucketNegInf}
 	}
-	if t.Abs > 0 {
-		q := x / (t.Abs / 2)
-		if math.Abs(q) >= maxIndex {
+	if t.UsesAbsBuckets() {
+		q := x / t.AbsWidth()
+		if math.Abs(q) >= MaxIndex {
 			return Bucket{kind: bucketExact, exact: x}
 		}
 		return Bucket{kind: bucketIndex, index: int64(math.Floor(q))}
@@ -118,9 +119,36 @@ func (t Tolerance) Bucket(x float64) Bucket {
 	if x < 0 {
 		kind = bucketNegIndex
 	}
-	width := math.Log1p(t.Rel / 2)
-	return Bucket{kind: kind, index: int64(math.Floor(math.Log(math.Abs(x)) / width))}
+	return Bucket{kind: kind, index: int64(math.Floor(LogAbs(x) / t.LogWidth()))}
 }
+
+// smallestNormal is the smallest positive normal float64, 2^-1022.
+const smallestNormal = 0x1p-1022
+
+// LogAbs returns ln|x| for x != 0, as relative buckets and SQL dialects compute it.
+//
+// Subnormal inputs are scaled into the normal range first. Go's math.Log is wrong for
+// them on amd64, whose assembly implementation returns about -709.09 for 5e-324 instead
+// of -744.44 (https://go.dev/issue/56600, open since 2022). The C library, and so every
+// engine, gets them right. Found by the DuckDB conformance test.
+func LogAbs(x float64) float64 {
+	a := math.Abs(x)
+	if a < smallestNormal {
+		return math.Log(a*0x1p52) - 52*math.Ln2
+	}
+	return math.Log(a)
+}
+
+// UsesAbsBuckets reports whether t buckets on the absolute scale (Abs > 0) rather than the
+// log scale.
+func (t Tolerance) UsesAbsBuckets() bool { return t.Abs > 0 }
+
+// AbsWidth is the width of absolute buckets, Abs/2. SQL dialects use this exact value.
+func (t Tolerance) AbsWidth() float64 { return t.Abs / 2 }
+
+// LogWidth is the width of relative buckets on the natural-log scale, ln(1 + Rel/2). SQL
+// dialects use this exact value.
+func (t Tolerance) LogWidth() float64 { return math.Log1p(t.Rel / 2) }
 
 // AppendText appends the bucket's canonical text to dst. Distinct buckets always have
 // distinct text, and no bucket's text contains '|' or '\'.
@@ -141,8 +169,9 @@ func (b Bucket) AppendText(dst []byte) []byte {
 	case bucketNegInf:
 		return append(dst, "-inf"...)
 	case bucketExact:
+		// The canonical exact float (%.16e), so that SQL dialects can produce it.
 		dst = append(dst, '=')
-		return strconv.AppendFloat(dst, b.exact, 'g', -1, 64)
+		return strconv.AppendFloat(dst, b.exact, 'e', 16, 64)
 	default:
 		panic("tolerance: unknown bucket kind")
 	}

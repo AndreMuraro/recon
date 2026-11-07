@@ -32,6 +32,10 @@ type Column struct {
 	Tolerance tolerance.Tolerance
 }
 
+// ExactFloatDigits is the number of significant digits in the canonical text of a float
+// compared without tolerance.
+const ExactFloatDigits = 17
+
 // Separator and escape bytes of the canonical form. NULL is written as the escape
 // followed by 'N', a sequence no escaped string can produce.
 const (
@@ -183,8 +187,11 @@ func (v Value) decimalText() string {
 	return string(b)
 }
 
-// appendExactFloat writes the shortest decimal that parses back to f. Negative zero is
-// zero, and NaN and the infinities have fixed spellings, matching tolerance buckets.
+// appendExactFloat writes f with 17 significant digits in scientific notation, correctly
+// rounded: the C format %.16e. Seventeen digits identify every float64, and a printf-style
+// format is something engines can produce exactly, where their shortest-digit printing
+// differs in layout (DuckDB prints 1e5 as "100000.0"). Negative zero is zero; NaN and the
+// infinities have fixed spellings, the same as in tolerance buckets.
 func appendExactFloat(dst []byte, f float64) []byte {
 	switch {
 	case math.IsNaN(f):
@@ -194,9 +201,9 @@ func appendExactFloat(dst []byte, f float64) []byte {
 	case math.IsInf(f, -1):
 		return append(dst, "-inf"...)
 	case f == 0:
-		return append(dst, '0')
+		f = 0 // drop the sign of negative zero
 	}
-	return strconv.AppendFloat(dst, f, 'g', -1, 64)
+	return strconv.AppendFloat(dst, f, 'e', ExactFloatDigits-1, 64)
 }
 
 // appendEscaped writes s with the escape and separator bytes escaped.

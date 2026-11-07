@@ -17,7 +17,7 @@ $ recon diff \
 # exit code 1
 ```
 
-> **Status: early development.** The canonical encoder and tolerance buckets are built and fuzz-tested. The `diff` command shown above is the design target ([ADR 0001](docs/adr/0001-comparison-model.md)) and doesn't exist yet.
+> **Status: early development.** The canonical encoder, tolerance buckets and the DuckDB dialect are built and tested against the real engine. The `diff` command shown above is the design target ([ADR 0001](docs/adr/0001-comparison-model.md)) and doesn't exist yet.
 
 ## How it works
 
@@ -31,7 +31,7 @@ $ recon diff \
 | Engine | Driver | Static binary | Status |
 |---|---|---|---|
 | PostgreSQL | pgx | yes | planned |
-| DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | planned |
+| DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | SQL dialect conforms; driver planned |
 | Snowflake | gosnowflake | yes | planned |
 | Databricks | databricks-sql-go | yes | planned |
 
@@ -39,7 +39,7 @@ $ recon diff \
 
 - **Compare in place.** Checksums are computed in each warehouse; only differing rows leave it. [ADR 0001](docs/adr/0001-comparison-model.md)
 - **Tolerance without false negatives.** Values are bucketed at half the tolerance width, which is proven, and fuzz-tested in CI, to never hide a difference. [ADR 0001 §3](docs/adr/0001-comparison-model.md)
-- **One reference encoder.** Each dialect's SQL encoder is tested against the Go encoder; golden values come from an independent implementation.
+- **One reference encoder, checked on real engines.** Each dialect's SQL runs on the engine itself, over thousands of generated rows and edge cases, and must match the Go encoder byte for byte; golden values come from an independent implementation. This found a Go standard-library bug on its first run ([ADR 0003](docs/adr/0003-conformance-against-real-engines.md)).
 - **Standard Go, strictly checked.** The standard library first, two supported Go releases, race and fuzz tests, govulncheck, and static, reproducible, attested releases. [ADR 0002](docs/adr/0002-go-toolchain-and-layout.md)
 
 ## Why this exists
@@ -52,6 +52,10 @@ Datafold's open-source `data-diff` did this, and it was archived in May 2024. Ru
 go test -race ./...     # tests, with the race detector
 golangci-lint run       # lint and format checks (v2.15+)
 go test -run='^$' -fuzz=FuzzNoFalseNegatives ./internal/tolerance   # fuzz one target
+
+# conformance against a real DuckDB (the CLI from PyPI, hash-pinned)
+python3 -m venv .venv && .venv/bin/pip install --require-hashes --no-deps -r .github/requirements/duckdb-cli.txt
+RECON_DUCKDB=.venv/bin/duckdb go test -count=1 -run Conformance ./internal/dialect
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

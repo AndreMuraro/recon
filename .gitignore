@@ -10,3 +10,6 @@ coverage.html
 
 # Local settings and secrets
 .env
+
+# Local tools (the DuckDB CLI for conformance tests)
+.venv/
