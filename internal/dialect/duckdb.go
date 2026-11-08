@@ -32,6 +32,11 @@ func (DuckDB) Hash60(text string) string {
 	return fmt.Sprintf("CAST('0x' || substr(md5(%s), 1, 15) AS BIGINT)", text)
 }
 
+// SumText implements [Dialect]: HUGEINT holds 128 bits.
+func (DuckDB) SumText(expr string) string {
+	return fmt.Sprintf("CAST(sum(CAST(%s AS HUGEINT)) AS VARCHAR)", expr)
+}
+
 // ValueText implements [Dialect].
 func (d DuckDB) ValueText(col canon.Column, expr string) (string, error) {
 	var text string

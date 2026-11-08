@@ -17,6 +17,13 @@ All notable changes are recorded here. The format follows
 - PostgreSQL SQL dialect (14 or later), conformance-tested on Postgres 15, 16, 17 and
   18 in CI through psql. The conformance harness now runs the same generated rows on any
   engine.
+- Checksum bisection and row comparison (`internal/diff`, ADR 0004): tables are compared
+  on an integer key by splitting disagreeing key ranges into 16 children per level,
+  querying both sides in parallel, and merge-joining rows only in ranges of at most
+  1,000 rows. Differences are reported as only-left, only-right or changed (with the
+  columns), and tolerant floats are compared exactly against their tolerance. Tested
+  against an in-memory model built on the Go reference encoding, and end to end on
+  DuckDB, Postgres, and DuckDB against Postgres.
 - `recon version` and `recon help`.
 
 ### Changed

@@ -35,6 +35,11 @@ func (Postgres) Hash60(text string) string {
 	return fmt.Sprintf("CAST(CAST('x' || substr(md5(%s), 1, 15) AS bit(60)) AS bigint)", text)
 }
 
+// SumText implements [Dialect]: the sum of bigint is numeric, which does not overflow.
+func (Postgres) SumText(expr string) string {
+	return fmt.Sprintf("CAST(sum(%s) AS text)", expr)
+}
+
 // ValueText implements [Dialect].
 func (p Postgres) ValueText(col canon.Column, expr string) (string, error) {
 	var text string

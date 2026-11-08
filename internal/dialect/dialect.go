@@ -29,6 +29,10 @@ type Dialect interface {
 	// Hash60 returns a BIGINT expression for the 60-bit checksum of a text expression:
 	// the first 15 hex digits of its MD5, read as an integer.
 	Hash60(text string) string
+	// SumText returns a text expression for the exact sum of a BIGINT expression over a
+	// group, in base 10, without overflow for up to 2^66 rows of 60-bit values. An empty
+	// group sums to NULL.
+	SumText(expr string) string
 }
 
 // ColumnExpr returns the SQL expression that reads a column on one side: usually its
