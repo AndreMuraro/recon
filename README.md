@@ -41,7 +41,7 @@ $ recon diff \
 - **Tolerance without false negatives.** Values are bucketed at half the tolerance width, which is proven, and fuzz-tested in CI, to never hide a difference. [ADR 0001 §3](docs/adr/0001-comparison-model.md)
 - **One reference encoder, checked on real engines.** Each dialect's SQL runs on the engine itself, over thousands of generated rows and edge cases, and must match the Go encoder byte for byte; golden values come from an independent implementation. This found a Go standard-library bug on its first run ([ADR 0003](docs/adr/0003-conformance-against-real-engines.md)).
 - **Bisection pushed into the engines.** Disagreeing key ranges are split 16 ways per level, both sides queried in parallel, and rows fetched only for ranges of at most 1,000 rows: in tests, 3 changed rows in 100,000 are found by fetching 148. [ADR 0004](docs/adr/0004-segments-and-bisection.md)
-- **Standard Go, strictly checked.** The standard library first, two supported Go releases, race and fuzz tests, govulncheck, and static, reproducible, attested releases. [ADR 0002](docs/adr/0002-go-toolchain-and-layout.md)
+- **Standard Go, strictly checked.** The standard library first, two supported Go releases, race and fuzz tests, govulncheck, and static, reproducible, attested releases. Tool versions are pinned once, in `mise.toml`, for contributors and CI alike. [ADR 0002](docs/adr/0002-go-toolchain-and-layout.md), [ADR 0005](docs/adr/0005-tool-versions-with-mise.md)
 
 ## Why this exists
 
@@ -49,19 +49,18 @@ Datafold's open-source `data-diff` did this, and it was archived in May 2024. Ru
 
 ## Development
 
+Tool versions are pinned in [`mise.toml`](mise.toml) and installed by [mise](https://mise.jdx.dev), locally and in CI:
+
 ```console
-go test -race ./...     # tests, with the race detector
-golangci-lint run       # lint and format checks (v2.15+)
+mise install          # Go, golangci-lint, govulncheck, GoReleaser, zizmor and the DuckDB CLI
+mise run check        # what CI checks: lint, tests, govulncheck, zizmor, engine tests
+mise run test         # tests, with the race detector
+mise run engines      # conformance and diff tests on DuckDB
+
+# Postgres too: point it at a server you can reach with psql
+RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" mise run engines
+
 go test -run='^$' -fuzz=FuzzNoFalseNegatives ./internal/tolerance   # fuzz one target
-
-# conformance against a real DuckDB (the CLI from PyPI, hash-pinned)
-python3 -m venv .venv && .venv/bin/pip install --require-hashes --no-deps -r .github/requirements/duckdb-cli.txt
-RECON_DUCKDB=.venv/bin/duckdb go test -count=1 -run 'Conformance|Engine' ./internal/dialect ./internal/diff
-
-# conformance against a Postgres you can reach with psql
-RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" go test -count=1 -run 'Conformance|Engine' ./internal/dialect ./internal/diff
-
-# with both variables set, the Engine tests also diff a DuckDB table against a Postgres one
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

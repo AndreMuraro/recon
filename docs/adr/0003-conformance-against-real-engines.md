@@ -29,9 +29,9 @@ Test fixtures written by hand only show what the author thought of.
   test easy to point at any installed engine version.
 - **The engine is named by an environment variable** (`RECON_DUCKDB`). Without it the test
   is skipped, so `go test ./...` stays hermetic. The CI `conformance` job always sets it.
-- **The CLI is pinned and hash-checked.** DuckDB publishes its official CLI on PyPI as
-  `duckdb-cli`. CI installs it with `pip --require-hashes` from
-  `.github/requirements/duckdb-cli.txt`, and Dependabot proposes updates.
+- **The CLI is pinned and hash-checked.** The official DuckDB CLI release is pinned in
+  `mise.toml` with the other tools, and its checksum recorded in `mise.lock` (ADR 0005).
+  It was first installed from PyPI with `pip --require-hashes`; ADR 0005 moved it.
 - **The only tolerated mismatch is in relative buckets,** and only within a few units in
   the last place of a log-bucket edge, computed from the actual values. Libraries may
   round `ln` either way there; per ADR 0001 that costs a row-level check, never a missed
