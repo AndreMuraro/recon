@@ -72,8 +72,13 @@ and the engines' CLIs for an end-to-end diff across engines.
 
 - Each differing segment costs a query per side per level. With `b = 16`, a single
   difference in a billion rows is found in about 8 rounds.
-- A range with many scattered differences fetches many small ranges. The search stops
-  once it has found `MaxDifferences` (default 10,000) and marks the result truncated.
-  It checks between levels, so the level in progress still finishes. A cap on rows
-  fetched is still needed before v0.1 ships, and the report must say when a cap was hit.
+- A range with many scattered differences fetches many small ranges, so two limits bound
+  the work. `MaxRowsFetched` (default 100,000, both sides together) is reserved from
+  each range's exact row counts before it is fetched; the first range that doesn't fit
+  closes the budget, and from then on disagreeing ranges are recorded, not split.
+  `MaxDifferences` (default 10,000) is checked between levels, so the level in progress
+  finishes and the extra differences are dropped. Either way the ranges not compared are
+  returned as *unresolved*, with their row counts. Every change is therefore either
+  reported or inside an unresolved range, and the result says which: *equal* needs
+  neither differences nor unresolved ranges. A property test checks that accounting.
 - Non-integer keys are refused for now, with an error that says so.

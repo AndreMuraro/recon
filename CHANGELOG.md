@@ -24,6 +24,13 @@ All notable changes are recorded here. The format follows
   columns), and tolerant floats are compared exactly against their tolerance. Tested
   against an in-memory model built on the Go reference encoding, and end to end on
   DuckDB, Postgres, and DuckDB against Postgres.
+- Search limits: `MaxRowsFetched` (default 100,000) and `MaxDifferences` (default
+  10,000). Ranges a limit leaves uncompared are reported as unresolved, with their row
+  counts, so a limited result never reads as equal.
+- `diff.DB`, a `Querier` over any `database/sql` driver, scanning every column as text.
+- Reports (`internal/report`): a text summary for people and a versioned JSON document
+  for programs, with the verdict (`equal`, `differs` or `incomplete`), counts by kind and
+  by column, and each difference's values decoded from the canonical encoding.
 - `recon version` and `recon help`.
 
 ### Changed
