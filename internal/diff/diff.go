@@ -64,8 +64,12 @@ type Options struct {
 	// split (default 1,000).
 	RowThreshold int64
 	// MaxDifferences stops the search once this many differences are found (default
-	// 10,000); the result is then marked truncated.
+	// 10,000). Ranges not yet searched are reported as unresolved, and differences found
+	// beyond the limit are dropped and the result marked truncated.
 	MaxDifferences int
+	// MaxRowsFetched caps the rows fetched for comparison, across both sides (default
+	// 100,000). Ranges that would exceed it are reported as unresolved, not fetched.
+	MaxRowsFetched int64
 	// Concurrency is the number of ranges searched at once, each querying both sides in
 	// parallel (default 4).
 	Concurrency int
@@ -81,6 +85,9 @@ func (o Options) withDefaults() Options {
 	if o.MaxDifferences < 1 {
 		o.MaxDifferences = 10_000
 	}
+	if o.MaxRowsFetched < 1 {
+		o.MaxRowsFetched = 100_000
+	}
 	if o.Concurrency < 1 {
 		o.Concurrency = 4
 	}
@@ -90,12 +97,29 @@ func (o Options) withDefaults() Options {
 // Result is the outcome of a comparison.
 type Result struct {
 	Differences []Difference // in key order
-	Truncated   bool         // the search stopped at Options.MaxDifferences
-	Stats       Stats
+	// Unresolved are key ranges whose checksums disagree but whose rows were not
+	// compared, because a limit was reached; in key order. Each holds at least one
+	// difference, unless only floats within tolerance changed bucket.
+	Unresolved []Unresolved
+	// Truncated reports that differences beyond Options.MaxDifferences were dropped.
+	Truncated bool
+	Stats     Stats
 }
 
-// Equal reports whether the tables matched.
-func (r *Result) Equal() bool { return len(r.Differences) == 0 && !r.Truncated }
+// Unresolved is a key range left undecided, with its row count on each side.
+type Unresolved struct {
+	Range
+	LeftRows, RightRows int64
+}
+
+// Equal reports whether the tables were proven equal: no differences, and nothing left
+// undecided.
+func (r *Result) Equal() bool {
+	return len(r.Differences) == 0 && len(r.Unresolved) == 0 && !r.Truncated
+}
+
+// Complete reports whether every difference was found.
+func (r *Result) Complete() bool { return len(r.Unresolved) == 0 && !r.Truncated }
 
 // Stats count the work a comparison did.
 type Stats struct {
@@ -115,6 +139,7 @@ func Diff(ctx context.Context, schema *canon.Encoder, left, right Side, opts Opt
 		right: right,
 		opts:  opts,
 	}
+	d.budget.Store(opts.MaxRowsFetched)
 
 	bl, br, err := both(ctx, left.Bounds, right.Bounds)
 	d.queries.Add(2)
@@ -149,9 +174,11 @@ func Diff(ctx context.Context, schema *canon.Encoder, left, right Side, opts Opt
 
 	res.Differences = d.diffs
 	slices.SortFunc(res.Differences, func(a, b Difference) int { return cmpInt64(a.Key, b.Key) })
-	if len(res.Differences) >= opts.MaxDifferences {
+	if len(res.Differences) > opts.MaxDifferences {
 		res.Differences, res.Truncated = res.Differences[:opts.MaxDifferences], true
 	}
+	res.Unresolved = d.unresolved
+	slices.SortFunc(res.Unresolved, func(a, b Unresolved) int { return cmpInt64(a.Lo, b.Lo) })
 	res.Stats.Queries = d.queries.Load()
 	res.Stats.RowsFetched = d.fetched.Load()
 	return res, nil
@@ -169,14 +196,24 @@ type differ struct {
 	opts        Options
 
 	queries, fetched atomic.Int64
-	mu               sync.Mutex
-	diffs            []Difference
+	budget           atomic.Int64 // rows that may still be fetched
+
+	mu         sync.Mutex
+	diffs      []Difference
+	unresolved []Unresolved
 }
 
-// search bisects level by level until no range disagrees or enough differences are found.
+// search bisects level by level until no range disagrees. Once enough differences are
+// found, the ranges still pending are left unresolved.
 func (d *differ) search(ctx context.Context, root pending, stats *Stats) error {
 	level := []pending{root}
-	for len(level) > 0 && !d.full() {
+	for len(level) > 0 {
+		if d.full() {
+			for _, p := range level {
+				d.leave(p)
+			}
+			return nil
+		}
 		stats.Rounds++
 		next, err := d.step(ctx, level)
 		if err != nil {
@@ -232,10 +269,19 @@ func (d *differ) step(ctx context.Context, level []pending) ([]pending, error) {
 }
 
 // resolve compares a small range row by row, or splits a larger one and returns the
-// children whose checksums disagree.
+// children whose checksums disagree. Once the row budget is spent, ranges are left
+// unresolved instead: splitting them further would not lead to a fetch.
 func (d *differ) resolve(ctx context.Context, p pending) ([]pending, error) {
+	if d.budget.Load() <= 0 {
+		d.leave(p)
+		return nil, nil
+	}
 	splits := p.r.split(d.opts.Branching)
 	if max(p.left, p.right) <= d.opts.RowThreshold || len(splits) == 0 {
+		if !d.reserve(p.left + p.right) {
+			d.leave(p)
+			return nil, nil
+		}
 		return nil, d.compareRows(ctx, p.r)
 	}
 	left, right, err := both(ctx,
@@ -274,6 +320,30 @@ func (d *differ) compareRows(ctx context.Context, r Range) error {
 	d.diffs = append(d.diffs, found...)
 	d.mu.Unlock()
 	return nil
+}
+
+// reserve takes n rows from the fetch budget, or reports that they don't fit. Row counts
+// come from the checksums, so a range fetches exactly what it reserved.
+func (d *differ) reserve(n int64) bool {
+	for {
+		left := d.budget.Load()
+		if n > left {
+			// Nothing smaller will fit for long either: close the budget, so that the
+			// remaining ranges are left whole instead of split.
+			d.budget.CompareAndSwap(left, 0)
+			return false
+		}
+		if d.budget.CompareAndSwap(left, left-n) {
+			return true
+		}
+	}
+}
+
+// leave records p as unresolved.
+func (d *differ) leave(p pending) {
+	d.mu.Lock()
+	d.unresolved = append(d.unresolved, Unresolved{Range: p.r, LeftRows: p.left, RightRows: p.right})
+	d.mu.Unlock()
 }
 
 func (d *differ) full() bool {

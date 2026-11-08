@@ -15,7 +15,8 @@ type fakeQuerier [][]string
 
 func (f fakeQuerier) Query(context.Context, string) ([][]string, error) { return f, nil }
 
-func fakeSide(t *testing.T, result [][]string) *SQLSide {
+// fakeSchema is the schema of fakeSide's table.
+func fakeSchema(t *testing.T) *canon.Encoder {
 	t.Helper()
 	enc, err := canon.NewEncoder([]canon.Column{
 		{Name: "id", Type: canon.TypeInt},
@@ -24,7 +25,12 @@ func fakeSide(t *testing.T, result [][]string) *SQLSide {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seg, err := dialect.NewSegmenter(dialect.DuckDB{}, []string{"t"}, enc, dialect.Quoted(dialect.DuckDB{}))
+	return enc
+}
+
+func fakeSide(t *testing.T, result [][]string) *SQLSide {
+	t.Helper()
+	seg, err := dialect.NewSegmenter(dialect.DuckDB{}, []string{"t"}, fakeSchema(t), dialect.Quoted(dialect.DuckDB{}))
 	if err != nil {
 		t.Fatal(err)
 	}

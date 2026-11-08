@@ -193,19 +193,63 @@ func TestDiffFetchesFewRows(t *testing.T) {
 	t.Logf("%+v", res.Stats)
 }
 
-func TestDiffStopsAtMaxDifferences(t *testing.T) {
+// TestDiffLimits checks that a search stopped by a limit accounts for every change: each
+// is either reported or inside an unresolved range, and the limits hold.
+func TestDiffLimits(t *testing.T) {
 	t.Parallel()
 	schema := testSchema(t)
-	r := testRand(7, 7)
-	recs := genRecords(r, 1000, 0)
-	res, err := Diff(context.Background(), schema,
-		newMemorySide(t, schema, memRows(t, recs)), newMemorySide(t, schema, nil),
-		Options{MaxDifferences: 10, RowThreshold: 8, Branching: 4})
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name string
+		opts Options
+	}{
+		{"differences", Options{MaxDifferences: 10, RowThreshold: 8, Branching: 4}},
+		{"rows", Options{MaxRowsFetched: 100, RowThreshold: 8, Branching: 4}},
+		{"rows below one range", Options{MaxRowsFetched: 3, RowThreshold: 8, Branching: 4}},
+		{"both", Options{MaxDifferences: 25, MaxRowsFetched: 500, RowThreshold: 16, Branching: 2}},
 	}
-	if !res.Truncated || len(res.Differences) != 10 || res.Equal() {
-		t.Errorf("got %d differences, truncated %v", len(res.Differences), res.Truncated)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := testRand(7, 7)
+			recs := genRecords(r, 3000, 0)
+			changed, muts := mutate(r, recs, 0.1)
+			res, err := Diff(context.Background(), schema,
+				newMemorySide(t, schema, memRows(t, recs)), newMemorySide(t, schema, memRows(t, changed)), tt.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Complete() || res.Equal() {
+				t.Fatalf("the search was not limited: %d differences, %+v", len(res.Differences), res.Stats)
+			}
+			if tt.opts.MaxDifferences > 0 && len(res.Differences) > tt.opts.MaxDifferences {
+				t.Errorf("%d differences, limit %d", len(res.Differences), tt.opts.MaxDifferences)
+			}
+			if tt.opts.MaxRowsFetched > 0 && res.Stats.RowsFetched > tt.opts.MaxRowsFetched {
+				t.Errorf("fetched %d rows, limit %d", res.Stats.RowsFetched, tt.opts.MaxRowsFetched)
+			}
+			found := make(map[int64]bool)
+			for _, d := range res.Differences {
+				found[d.Key] = true
+			}
+			last := Range{Lo: math.MinInt64, Hi: math.MinInt64}
+			for i, u := range res.Unresolved {
+				if u.Lo > u.Hi || (i > 0 && u.Lo <= last.Hi) {
+					t.Errorf("unresolved ranges overlap or are out of order: %+v after %+v", u.Range, last)
+				}
+				last = u.Range
+			}
+			for _, m := range muts {
+				if m.kind == 0 || found[m.key] || res.Truncated {
+					continue
+				}
+				i, _ := slices.BinarySearchFunc(res.Unresolved, m.key, func(u Unresolved, k int64) int {
+					return cmpInt64(u.Hi, k)
+				})
+				if i == len(res.Unresolved) || res.Unresolved[i].Lo > m.key {
+					t.Errorf("change at key %d is neither reported nor in an unresolved range", m.key)
+				}
+			}
+		})
 	}
 }
 
