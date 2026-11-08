@@ -34,6 +34,9 @@ All notable changes are recorded here. The format follows
 - `recon version` and `recon help`.
 
 ### Changed
+- Tool versions (Go, golangci-lint, govulncheck, GoReleaser, zizmor, the DuckDB CLI) are
+  pinned once in `mise.toml`, installed by mise locally and in CI, with `mise run check`
+  for the local equivalent of CI (ADR 0005).
 - Floats compared exactly are encoded with 17 significant digits in scientific notation
   (`%.16e`), a format engines can reproduce; shortest-digit printing differs between
   them.

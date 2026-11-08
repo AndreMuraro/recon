@@ -2,16 +2,22 @@
 
 ## Setup
 
-- Go 1.26 or later. With `GOTOOLCHAIN=auto` (the default), Go fetches the right version.
-- [golangci-lint](https://golangci-lint.run/welcome/install/) v2.15 or later.
+Install [mise](https://mise.jdx.dev/getting-started.html), then run `mise install` in the
+repository. It installs the exact versions in `mise.toml`, which CI uses too: Go,
+golangci-lint, govulncheck, GoReleaser, zizmor and the DuckDB CLI. To change a version,
+edit `mise.toml` and run `mise lock`, and commit both files.
+
+On Windows, the race detector needs a C compiler (cgo). Without one, run `go test ./...`
+and let CI run the race tests.
 
 ## Before opening a pull request
 
 ```console
-go test -race -shuffle=on ./...
-golangci-lint run
-go mod tidy -diff
+mise run check
 ```
+
+That runs the linters and `go mod tidy -diff`, the tests with the race detector,
+govulncheck, zizmor on the workflows, and the DuckDB engine tests.
 
 If you change an invariant (encoding, buckets, comparison), run its fuzz target for a few
 minutes locally; CI runs each one for 30 seconds:

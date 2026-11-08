@@ -10,6 +10,4 @@ updates:
     schedule: { interval: weekly }
     groups:
       actions: { patterns: ["*"] }
-  - package-ecosystem: pip
-    directory: /.github/requirements
-    schedule: { interval: weekly }
+# Tool versions in mise.toml aren't a Dependabot ecosystem: see the comment there.
