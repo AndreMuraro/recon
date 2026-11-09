@@ -27,6 +27,13 @@ All notable changes are recorded here. The format follows
 - Search limits: `MaxRowsFetched` (default 100,000) and `MaxDifferences` (default
   10,000). Ranges a limit leaves uncompared are reported as unresolved, with their row
   counts, so a limited result never reads as equal.
+- Schema reading and matching (`internal/schema`, ADR 0006): each table's columns are
+  read from `information_schema` and mapped to canonical types per dialect, refusing
+  types that can't be compared exactly. Columns pair by name regardless of case; an
+  integer can be compared against a decimal, and decimals at the larger scale. Every
+  problem (a column on one side only, incompatible types, a non-integer key, a misplaced
+  tolerance) is reported at once. Tested on DuckDB and Postgres, including a diff
+  between tables whose schemas differ the way rewrites do.
 - `diff.DB`, a `Querier` over any `database/sql` driver, scanning every column as text.
 - Reports (`internal/report`): a text summary for people and a versioned JSON document
   for programs, with the verdict (`equal`, `differs` or `incomplete`), counts by kind and

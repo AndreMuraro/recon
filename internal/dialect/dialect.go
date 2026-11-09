@@ -29,6 +29,12 @@ type Dialect interface {
 	// Hash60 returns a BIGINT expression for the 60-bit checksum of a text expression:
 	// the first 15 hex digits of its MD5, read as an integer.
 	Hash60(text string) string
+	// StringLiteral renders s, which may be any data without NUL bytes, as a string
+	// literal that means s whatever the session's settings.
+	StringLiteral(s string) string
+	// ColumnType maps a column, as information_schema describes it, to its canonical
+	// type and, for decimals, scale. Types recon does not compare are ErrUnsupported.
+	ColumnType(info *ColumnInfo) (canon.Type, int32, error)
 	// SumText returns a text expression for the exact sum of a BIGINT expression over a
 	// group, in base 10, without overflow for up to 2^66 rows of 60-bit values. An empty
 	// group sums to NULL.
@@ -70,8 +76,8 @@ func RowHash(d Dialect, enc *canon.Encoder, expr ColumnExpr) (string, error) {
 	return d.Hash60(text), nil
 }
 
-// quoteString renders s as a standard SQL string literal. It is only ever given constants
-// from this package, never data.
+// quoteString renders s as a standard SQL string literal, where only the quote is
+// special. Dialects whose literals treat backslashes specially must not use it for data.
 func quoteString(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

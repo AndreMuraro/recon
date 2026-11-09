@@ -1,138 +1,31 @@
 package diff
 
 import (
-	"bytes"
-	"context"
-	"encoding/csv"
 	"fmt"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/AndreMuraro/recon/internal/canon"
 	"github.com/AndreMuraro/recon/internal/dialect"
+	"github.com/AndreMuraro/recon/internal/enginetest"
 )
 
 // The end-to-end tests run the search against real engines, reached through their
-// official CLIs like the conformance tests in package dialect (ADR 0003). Each is skipped
-// unless its variable names the CLI:
+// official CLIs (package enginetest). Each is skipped unless its variable names the CLI:
 //
 //	RECON_DUCKDB=duckdb go test ./internal/diff -run Engine
 //	RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" go test ./internal/diff -run Engine
 //
 // With both set, one table on each engine is compared with the other as well.
 
-// cliQuerier is a Querier over an engine's CLI in CSV mode, one process per query.
-type cliQuerier struct {
-	cli []string // the command and its arguments; the script is read from stdin
-	// readCLI, when set, runs queries instead of cli: DuckDB lets several processes open
-	// a database file only when all of them are read-only.
-	readCLI []string
-}
-
-func (q cliQuerier) run(ctx context.Context, script string) ([]byte, error) {
-	return runCLI(ctx, q.cli, script)
-}
-
-func runCLI(ctx context.Context, cli []string, script string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, cli[0], cli[1:]...) //nolint:gosec // the command comes from the test's own environment
-	cmd.Stdin = strings.NewReader(script)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%w\n%s", err, stderr.String())
-	}
-	return stdout.Bytes(), nil
-}
-
-func (q cliQuerier) Query(ctx context.Context, sql string) ([][]string, error) {
-	cli := q.cli
-	if q.readCLI != nil {
-		cli = q.readCLI
-	}
-	out, err := runCLI(ctx, cli, sql+";\n")
-	if err != nil {
-		return nil, err
-	}
-	r := csv.NewReader(bytes.NewReader(out))
-	r.FieldsPerRecord = -1
-	return r.ReadAll()
-}
-
-// testEngine is an engine to load test tables into.
-type testEngine struct {
-	name    string
-	dialect dialect.Dialect
-	// open returns the querier for a fresh database, or skips the test.
-	open func(t *testing.T) cliQuerier
-	// table returns a name for a new table, dropped when the test ends.
-	table func(t *testing.T, q cliQuerier) string
-}
-
-var duckdbTestEngine = testEngine{
-	name:    "duckdb",
-	dialect: dialect.DuckDB{},
-	open: func(t *testing.T) cliQuerier {
-		t.Helper()
-		cli := strings.Fields(os.Getenv("RECON_DUCKDB"))
-		if len(cli) == 0 {
-			t.Skip("RECON_DUCKDB is not set")
-		}
-		db := filepath.Join(t.TempDir(), "recon.duckdb")
-		args := []string{"-bail", "-csv", "-noheader"}
-		return cliQuerier{
-			cli:     append(append(slices.Clip(cli), args...), db),
-			readCLI: append(append(slices.Clip(cli), args...), "-readonly", db),
-		}
-	},
-	table: func(_ *testing.T, _ cliQuerier) string { return tableName("t") },
-}
-
-var postgresTestEngine = testEngine{
-	name:    "postgres",
-	dialect: dialect.Postgres{},
-	open: func(t *testing.T) cliQuerier {
-		t.Helper()
-		cli := strings.Fields(os.Getenv("RECON_POSTGRES"))
-		if len(cli) == 0 {
-			t.Skip("RECON_POSTGRES is not set")
-		}
-		return cliQuerier{cli: append(cli,
-			"--no-psqlrc", "--quiet", "--tuples-only", "--csv",
-			"--set", "ON_ERROR_STOP=1", "--file", "-")}
-	},
-	// The server is shared by every test: each table has its own name and is dropped.
-	table: func(t *testing.T, q cliQuerier) string {
-		t.Helper()
-		name := tableName("recon_diff_")
-		t.Cleanup(func() {
-			if _, err := q.run(context.Background(), "DROP TABLE IF EXISTS "+name+";"); err != nil {
-				t.Errorf("dropping %s: %v", name, err)
-			}
-		})
-		return name
-	},
-}
-
-var tables atomic.Int64
-
-// tableName returns a name no other table of this or a concurrent test run uses.
-func tableName(prefix string) string {
-	return fmt.Sprintf("%s%d_%d", prefix, os.Getpid(), tables.Add(1))
-}
-
-// load creates a table of recs and returns the side that reads it.
-func (e *testEngine) load(t *testing.T, q cliQuerier, schema *canon.Encoder, recs []record) *SQLSide {
+// load creates a table of recs on e and returns the side that reads it.
+func load(t *testing.T, e *enginetest.Engine, q *enginetest.Querier, schema *canon.Encoder, recs []record) *SQLSide {
 	t.Helper()
-	name := e.table(t, q)
+	name := e.Table(t, q, "recon_diff")
 	var b strings.Builder
 	fmt.Fprintf(&b, "CREATE TABLE %s (id BIGINT, amount DECIMAL(18, 2), score DOUBLE PRECISION, label VARCHAR, flag BOOLEAN, day DATE, updated_at TIMESTAMP);\n", name)
 	for start := 0; start < len(recs); start += 500 {
@@ -145,10 +38,10 @@ func (e *testEngine) load(t *testing.T, q cliQuerier, schema *canon.Encoder, rec
 		}
 		b.WriteString(";\n")
 	}
-	if _, err := q.run(t.Context(), b.String()); err != nil {
-		t.Fatalf("%s: loading %s: %v", e.name, name, err)
+	if err := q.Exec(t.Context(), b.String()); err != nil {
+		t.Fatalf("%s: loading %s: %v", e.Name, name, err)
 	}
-	seg, err := dialect.NewSegmenter(e.dialect, []string{name}, schema, dialect.Quoted(e.dialect))
+	seg, err := dialect.NewSegmenter(e.Dialect, []string{name}, schema, dialect.Quoted(e.Dialect))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,14 +121,14 @@ func checkAgainstModel(t *testing.T, c *engineCase, left, right Side) {
 	t.Logf("%d differences, %+v", len(res.Differences), res.Stats)
 }
 
-func runEngine(t *testing.T, e *testEngine) {
+func runEngine(t *testing.T, e *enginetest.Engine) {
 	t.Helper()
 	t.Parallel()
-	q := e.open(t)
+	q := e.Open(t)
 	schema := testSchema(t)
 	c := newEngineCase()
-	left := e.load(t, q, schema, c.left)
-	right := e.load(t, q, schema, c.right)
+	left := load(t, e, q, schema, c.left)
+	right := load(t, e, q, schema, c.right)
 
 	t.Run("finds the changes", func(t *testing.T) {
 		t.Parallel()
@@ -255,16 +148,16 @@ func runEngine(t *testing.T, e *testEngine) {
 	})
 }
 
-func TestEngineDuckDB(t *testing.T)   { runEngine(t, &duckdbTestEngine) }
-func TestEnginePostgres(t *testing.T) { runEngine(t, &postgresTestEngine) }
+func TestEngineDuckDB(t *testing.T)   { runEngine(t, enginetest.DuckDB) }
+func TestEnginePostgres(t *testing.T) { runEngine(t, enginetest.Postgres) }
 
 // TestEngineDuckDBToPostgres compares a table on DuckDB with one on Postgres.
 func TestEngineDuckDBToPostgres(t *testing.T) {
 	t.Parallel()
-	duck, pg := duckdbTestEngine.open(t), postgresTestEngine.open(t)
+	duck, pg := enginetest.DuckDB.Open(t), enginetest.Postgres.Open(t)
 	schema := testSchema(t)
 	c := newEngineCase()
 	checkAgainstModel(t, &c,
-		duckdbTestEngine.load(t, duck, schema, c.left),
-		postgresTestEngine.load(t, pg, schema, c.right))
+		load(t, enginetest.DuckDB, duck, schema, c.left),
+		load(t, enginetest.Postgres, pg, schema, c.right))
 }
