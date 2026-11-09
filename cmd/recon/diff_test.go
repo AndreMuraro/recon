@@ -237,8 +237,11 @@ func TestEngineDiffDuckDBToPostgres(t *testing.T) {
 	}
 	d := engineDeps(map[string]*enginetest.Querier{"duckdb:left": duck, "postgres://right": pg})
 	var stdout, stderr bytes.Buffer
-	code := run(t.Context(), d, []string{"diff", "--left", "duckdb:left", "--right", "postgres://right",
-		"--left-table", left, "--right-table", right, "--key", "id", "--tolerance", "score=abs:0.01"}, &stdout, &stderr)
+	args := []string{
+		"diff", "--left", "duckdb:left", "--right", "postgres://right",
+		"--left-table", left, "--right-table", right, "--key", "id", "--tolerance", "score=abs:0.01",
+	}
+	code := run(t.Context(), d, args, &stdout, &stderr)
 	if code != exitDiffers {
 		t.Fatalf("exit code %d, stderr: %s", code, stderr.String())
 	}
