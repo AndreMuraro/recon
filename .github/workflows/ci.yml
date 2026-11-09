@@ -186,14 +186,17 @@ jobs:
           "$RUNNER_TEMP/spark/bin/pip" install --require-hashes --no-deps -r ".github/requirements/spark-${SPARK}/requirements.txt"
         env:
           SPARK: ${{ matrix.spark }}
+      # Java 17, which both Spark lines support; the runner's default Java is newer than
+      # Spark 3.5 runs on. JAVA_HOME_17_X64 is a runner variable, not in the env context.
       - name: Databricks conformance script on Spark, ANSI on, non-UTC session
-        run: '"$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql America/Sao_Paulo true'
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          "$JAVA_HOME/bin/java" -version
+          "$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql America/Sao_Paulo true
       - name: The same, ANSI off, UTC session
-        run: '"$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql UTC false'
-        env:
-          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          "$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql UTC false
 
   vulnerabilities:
     runs-on: ubuntu-latest
