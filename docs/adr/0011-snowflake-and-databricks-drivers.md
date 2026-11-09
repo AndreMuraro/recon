@@ -10,7 +10,7 @@ than pgx (ADR 0008).
 
 ## Decision
 
-**gosnowflake v2 and databricks-sql-go**, the vendors' own Go drivers, registered through
+**gosnowflake v2 and databricks-sql-go v1.17**, the vendors' own Go drivers, registered through
 `database/sql` in `cmd/recon/drivers.go`, like pgx. Nothing else imports them.
 
 - **Pure Go.** Every release target still builds with `CGO_ENABLED=0`: Linux, macOS and
@@ -24,6 +24,10 @@ than pgx (ADR 0008).
   unescapes them, and an explicit port 443 for databricks-sql-go, which requires one.
   Tests check the strings with gosnowflake's own parser, including a password with
   `@ + : % / ?` in it.
+- **databricks-sql-go stays at v1.17 for now.** From v1.18 it declares Go 1.27.3, and
+  `go.mod` would have to follow, dropping Go 1.26 while it is still a supported release
+  (ADR 0002). Dependabot ignores 1.18 and later until Go 1.28 is out; CI's Go 1.26 job
+  is what caught it.
 - **One error, not three.** Both drivers log failures to stderr as well as returning
   them. recon silences their logs, unless `DATABRICKS_LOG_LEVEL` or Snowflake's
   `tracing=` parameter asks for them, so a failure is reported once, with the URL's

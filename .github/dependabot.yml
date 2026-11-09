@@ -5,6 +5,11 @@ updates:
     schedule: { interval: weekly }
     groups:
       go: { patterns: ["*"] }
+    ignore:
+      # From 1.18 it needs Go 1.27, outside the support window while Go 1.26 is in it
+      # (ADR 0002, ADR 0011). Remove when Go 1.28 is released.
+      - dependency-name: github.com/databricks/databricks-sql-go
+        versions: [">= 1.18.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
