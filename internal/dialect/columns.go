@@ -54,10 +54,17 @@ func ColumnsSQL(d Dialect, table []string) (string, error) {
 	case 3:
 		where = append(where, "table_schema = "+lit(table[1]), "table_catalog = "+lit(table[0]))
 	}
-	text := func(expr string) string { return "coalesce(CAST(" + expr + " AS VARCHAR), '')" }
-	return fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM information_schema.columns WHERE %s",
+	// Snowflake and Databricks keep an information_schema per catalog (database), so a
+	// table in another catalog is looked up in that catalog's.
+	from := "information_schema.columns"
+	if len(table) == 3 {
+		from = d.QuoteIdent(table[0]) + "." + from
+	}
+	textType := d.types().text
+	text := func(expr string) string { return "coalesce(CAST(" + expr + " AS " + textType + "), '')" }
+	return fmt.Sprintf("SELECT %s, %s, %s, %s, %s FROM %s WHERE %s",
 		text("column_name"), text("data_type"), text("numeric_precision"), text("numeric_scale"),
-		text("ordinal_position"), strings.Join(where, " AND ")), nil
+		text("ordinal_position"), from, strings.Join(where, " AND ")), nil
 }
 
 // unsupported is the error for a column type recon does not compare.

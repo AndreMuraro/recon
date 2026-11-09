@@ -50,6 +50,8 @@ func TestStringLiteral(t *testing.T) {
 		{DuckDB{}, `it's a \ path`, `'it''s a \ path'`},
 		{Postgres{}, `it's a \ path`, `E'it\'s a \\ path'`},
 		{Postgres{}, "plain", "E'plain'"},
+		{Snowflake{}, `it's a \ path`, `'it\'s a \\ path'`},
+		{Databricks{}, `it's a \ path`, `'it\'s a \\ path'`},
 	}
 	for _, tt := range tests {
 		if got := tt.d.StringLiteral(tt.in); got != tt.want {
@@ -92,6 +94,19 @@ func TestColumnType(t *testing.T) {
 		{Postgres{}, "character", ColumnInfo{}, want{canon.TypeString, 0}},
 		{Postgres{}, "jsonb", ColumnInfo{}, want{}},
 		{Postgres{}, "ARRAY", ColumnInfo{}, want{}},
+		{Snowflake{}, "NUMBER", dec(38, 0), want{canon.TypeInt, 0}},
+		{Snowflake{}, "NUMBER", dec(18, 4), want{canon.TypeDecimal, 4}},
+		{Snowflake{}, "FLOAT", ColumnInfo{}, want{canon.TypeFloat, 0}},
+		{Snowflake{}, "TEXT", ColumnInfo{}, want{canon.TypeString, 0}},
+		{Snowflake{}, "TIMESTAMP_TZ", ColumnInfo{}, want{canon.TypeTimestamp, 0}},
+		{Snowflake{}, "VARIANT", ColumnInfo{}, want{}},
+		{Snowflake{}, "TIME", ColumnInfo{}, want{}},
+		{Databricks{}, "INT", ColumnInfo{}, want{canon.TypeInt, 0}},
+		{Databricks{}, "DECIMAL", dec(10, 2), want{canon.TypeDecimal, 2}},
+		{Databricks{}, "TIMESTAMP_NTZ", ColumnInfo{}, want{canon.TypeTimestamp, 0}},
+		{Databricks{}, "STRING", ColumnInfo{}, want{canon.TypeString, 0}},
+		{Databricks{}, "MAP", ColumnInfo{}, want{}},
+		{Databricks{}, "BINARY", ColumnInfo{}, want{}},
 	}
 	for _, tt := range tests {
 		info := tt.info

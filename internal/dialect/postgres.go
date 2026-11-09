@@ -25,6 +25,8 @@ func (Postgres) QuoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
+func (Postgres) types() sqlTypes { return sqlTypes{double: "double precision", text: "text"} }
+
 // Concat implements [Dialect].
 func (Postgres) Concat(parts []string) string {
 	return "(" + strings.Join(parts, " || ") + ")"
@@ -102,5 +104,5 @@ func (p Postgres) ValueText(col canon.Column, expr string) (string, error) {
 // In Postgres NaN equals NaN, so the special values can be matched with =.
 func (Postgres) floatText(tol tolerance.Tolerance, x string) string {
 	special := fmt.Sprintf("WHEN %[1]s = 'NaN' THEN 'nan' WHEN %[1]s = 'Infinity' THEN 'inf' WHEN %[1]s = '-Infinity' THEN '-inf'", x)
-	return floatText(tol, x, special, sqlTypes{double: "double precision", text: "text"})
+	return floatText(tol, x, special, Postgres{}.types())
 }

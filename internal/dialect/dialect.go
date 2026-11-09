@@ -36,10 +36,29 @@ type Dialect interface {
 	// ColumnType maps a column, as information_schema describes it, to its canonical
 	// type and, for decimals, scale. Types recon does not compare are ErrUnsupported.
 	ColumnType(info *ColumnInfo) (canon.Type, int32, error)
+	// types names the engine's float and text types, for SQL built in this package.
+	types() sqlTypes
 	// SumText returns a text expression for the exact sum of a BIGINT expression over a
 	// group, in base 10, without overflow for up to 2^66 rows of 60-bit values. An empty
 	// group sums to NULL.
 	SumText(expr string) string
+}
+
+// ColumnReader is implemented by dialects that read some column types through an
+// expression rather than the column itself, to bring them to what ValueText expects.
+type ColumnReader interface {
+	// ReadColumn returns the expression that reads ident, a quoted column whose type
+	// information_schema spells dataType.
+	ReadColumn(dataType, ident string) string
+}
+
+// Read returns the expression for a column on d: ident itself, or what d's ColumnReader
+// makes of it.
+func Read(d Dialect, dataType, ident string) string {
+	if r, ok := d.(ColumnReader); ok {
+		return r.ReadColumn(dataType, ident)
+	}
+	return ident
 }
 
 // ColumnExpr returns the SQL expression that reads a column on one side: usually its

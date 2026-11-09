@@ -21,7 +21,7 @@ $ echo $?
 1
 ```
 
-> **Status: early development.** `recon diff` works on PostgreSQL today, through the pgx driver ([ADR 0008](docs/adr/0008-postgres-driver.md)), and is tested end to end on Postgres 15 to 18. Its SQL for DuckDB is built and tested too, including DuckDB against Postgres; the DuckDB driver needs cgo and comes in a separate build. Snowflake and Databricks are next.
+> **Status: early development.** `recon diff` works on PostgreSQL today, through the pgx driver ([ADR 0008](docs/adr/0008-postgres-driver.md)), and is tested end to end on Postgres 15 to 18. The SQL for DuckDB, Snowflake and Databricks is written and checked against the same reference ([ADR 0010](docs/adr/0010-snowflake-and-databricks.md)); their drivers come next.
 
 ## How it works
 
@@ -36,8 +36,8 @@ $ echo $?
 |---|---|---|---|
 | PostgreSQL 14+ | pgx | yes | works: `recon diff` tested end to end on 15–18 |
 | DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | SQL dialect conforms; driver planned |
-| Snowflake | gosnowflake | yes | planned |
-| Databricks | databricks-sql-go | yes | planned |
+| Snowflake | gosnowflake | yes | SQL dialect written; its conformance script is run by hand; driver planned |
+| Databricks | databricks-sql-go | yes | SQL dialect conforms on Spark 3.5 and 4 in CI; driver planned |
 
 ## Decisions
 
@@ -69,6 +69,12 @@ RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" \
 RECON_POSTGRES_URL="postgres://postgres@localhost/postgres" mise run engines
 
 go test -run='^$' -fuzz=FuzzNoFalseNegatives ./internal/tolerance   # fuzz one target
+```
+
+Snowflake and Databricks conformance runs as one generated, self-checking statement per engine, in [`internal/dialect/testdata/conformance`](internal/dialect/testdata/conformance). Run `snowflake.sql` in a Snowflake worksheet, or `databricks.sql` in a Databricks SQL warehouse: each returns a single `pass` row, or one row per mismatching value. CI runs the Databricks one on Spark. After changing a dialect, regenerate them:
+
+```console
+go test ./internal/dialect -run ConformanceScripts -update
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

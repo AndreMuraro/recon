@@ -10,7 +10,7 @@ import (
 )
 
 // dialects lists every dialect, for the tests that apply to all of them.
-var dialects = []Dialect{DuckDB{}, Postgres{}}
+var dialects = []Dialect{DuckDB{}, Postgres{}, Snowflake{}, Databricks{}}
 
 func TestQuoteIdent(t *testing.T) {
 	t.Parallel()
@@ -20,12 +20,15 @@ func TestQuoteIdent(t *testing.T) {
 		`we"ird`:     `"we""ird"`,
 		"select":     `"select"`,
 	}
-	for _, d := range dialects {
+	for _, d := range []Dialect{DuckDB{}, Postgres{}, Snowflake{}} {
 		for in, want := range tests {
 			if got := d.QuoteIdent(in); got != want {
 				t.Errorf("%s: QuoteIdent(%q) = %s, want %s", d.Name(), in, got, want)
 			}
 		}
+	}
+	if got := (Databricks{}).QuoteIdent("we`ird name"); got != "`we``ird name`" {
+		t.Errorf("databricks: QuoteIdent = %s", got)
 	}
 }
 
@@ -71,7 +74,7 @@ func TestUsesTheReferenceConstants(t *testing.T) {
 	t.Parallel()
 	abs := tolerance.Tolerance{Abs: 1e-6}
 	rel := tolerance.Tolerance{Rel: 1e-9}
-	nullToken := map[string]string{"duckdb": `'\N'`, "postgres": `E'\\N'`}
+	nullToken := map[string]string{"duckdb": `'\N'`, "postgres": `E'\\N'`, "snowflake": `'\\N'`, "databricks": `'\\N'`}
 	tests := []struct {
 		name string
 		col  canon.Column

@@ -10,4 +10,18 @@ updates:
     schedule: { interval: weekly }
     groups:
       actions: { patterns: ["*"] }
+  # PySpark, for the Databricks conformance job: one directory per Spark line, and the
+  # 3.5 line only takes patch releases.
+  - package-ecosystem: pip
+    directory: /.github/requirements/spark-3.5
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: pyspark
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: pip
+    directory: /.github/requirements/spark-4
+    schedule: { interval: weekly }
+    ignore:
+      - dependency-name: pyspark
+        update-types: ["version-update:semver-major"]
 # Tool versions in mise.toml aren't a Dependabot ecosystem: see the comment there.
