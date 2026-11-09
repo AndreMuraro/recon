@@ -22,6 +22,8 @@ func (DuckDB) QuoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
+func (DuckDB) types() sqlTypes { return sqlTypes{double: "DOUBLE", text: "VARCHAR"} }
+
 // Concat implements [Dialect].
 func (DuckDB) Concat(parts []string) string {
 	return "(" + strings.Join(parts, " || ") + ")"
@@ -99,5 +101,5 @@ func (d DuckDB) ValueText(col canon.Column, expr string) (string, error) {
 // floatText is the canonical text of a float column; see floatText in dialect.go.
 func (DuckDB) floatText(tol tolerance.Tolerance, x string) string {
 	special := fmt.Sprintf("WHEN isnan(%[1]s) THEN 'nan' WHEN isinf(%[1]s) AND %[1]s > 0 THEN 'inf' WHEN isinf(%[1]s) THEN '-inf'", x)
-	return floatText(tol, x, special, sqlTypes{double: "DOUBLE", text: "VARCHAR"})
+	return floatText(tol, x, special, DuckDB{}.types())
 }

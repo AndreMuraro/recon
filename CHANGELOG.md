@@ -46,6 +46,12 @@ All notable changes are recorded here. The format follows
 - The PostgreSQL driver: pgx v5 through `database/sql`, pure Go, so releases stay
   static (ADR 0008). Connection settings follow libpq: `PGPASSWORD`, `.pgpass`, service
   files. Tested end to end on Postgres 15 to 18.
+- Snowflake and Databricks SQL dialects (ADR 0010), with self-checking conformance
+  scripts generated from the same rows and reference as the other engines. The
+  Databricks script runs in CI on Spark 3.5 and 4, with ANSI mode on and off; the
+  Snowflake one is run by hand. Snowflake timestamps with nanoseconds are compared, not
+  truncated; Databricks `TIMESTAMP_NTZ` is read as UTC whatever the session time zone.
+- Three-part table names are looked up in that catalog's `information_schema`.
 - `recon version` and `recon help`.
 
 ### Changed

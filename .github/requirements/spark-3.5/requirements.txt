@@ -1,0 +1,5 @@
+# Spark 3.5, to run the Databricks conformance script (ADR 0010). Hash-pinned; updated by Dependabot.
+pyspark==3.5.9 \
+    --hash=sha256:ea27adc39ddac9413b8951e45aa748cbed6c785971b81386efc41938f6243d93
+py4j==0.10.9.9 \
+    --hash=sha256:c7c26e4158defb37b0bb124933163641a2ff6e3a3913f7811b0ddbe07ed61533

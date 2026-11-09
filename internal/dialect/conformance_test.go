@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -173,7 +174,8 @@ func genTimestamp(withZone bool) func(*rand.Rand) raw {
 		}
 		v := raw{null: maybeNull(r), t: t, zone: time.UTC}
 		if withZone && t.Year() > 1 && t.Year() < 9999 {
-			v.zone = time.FixedZone("", (r.IntN(27)-12)*3600+r.IntN(2)*1800)
+			// Offsets in use run from -12:00 to +14:00; Snowflake rejects anything beyond.
+			v.zone = time.FixedZone("", min((r.IntN(27)-12)*3600+r.IntN(2)*1800, 14*3600))
 		}
 		return v
 	}
@@ -222,6 +224,115 @@ func (c testColumn) value(t *testing.T, v *raw) canon.Value {
 	return out
 }
 
+// conformanceCase is a generated table: its columns, its rows, and what the Go reference
+// encodes them as. Every engine gets the same rows from the same seed.
+type conformanceCase struct {
+	cols []testColumn
+	enc  *canon.Encoder
+	data [][]raw
+}
+
+func newConformanceCase(t *testing.T, rows int) *conformanceCase {
+	t.Helper()
+	c := &conformanceCase{cols: conformanceColumns()}
+	specs := make([]canon.Column, len(c.cols))
+	for i, col := range c.cols {
+		specs[i] = col.spec
+	}
+	var err error
+	if c.enc, err = canon.NewEncoder(specs); err != nil {
+		t.Fatal(err)
+	}
+	rng := rand.New(rand.NewPCG(2026, 11)) //nolint:gosec // deterministic test data, not security
+	c.data = make([][]raw, rows)
+	for id := range c.data {
+		c.data[id] = make([]raw, len(c.cols))
+		for j, col := range c.cols {
+			c.data[id][j] = col.gen(rng)
+		}
+	}
+	return c
+}
+
+// expected is what the reference makes of one row. Where an engine may legitimately
+// differ in a column (onLogBucketEdge), edge is set and the row's text and checksum are
+// not checked.
+type expected struct {
+	texts         []string
+	edge          []bool
+	rowText, hash string
+}
+
+// rowChecked reports whether the row's text and checksum are checked.
+func (e *expected) rowChecked() bool { return !slices.Contains(e.edge, true) }
+
+func (c *conformanceCase) expected(t *testing.T, id int) expected {
+	t.Helper()
+	values := make([]canon.Value, len(c.cols))
+	e := expected{texts: make([]string, len(c.cols)), edge: make([]bool, len(c.cols))}
+	for j, col := range c.cols {
+		values[j] = col.value(t, &c.data[id][j])
+		if onLogBucketEdge(col.spec.Tolerance, &c.data[id][j]) {
+			e.edge[j] = true
+			continue
+		}
+		colEnc, err := canon.NewEncoder([]canon.Column{col.spec})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, err := colEnc.AppendRow(nil, values[j:j+1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.texts[j] = string(text)
+	}
+	if e.rowChecked() {
+		text, err := c.enc.AppendRow(nil, values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash, err := c.enc.Hash60(values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.rowText, e.hash = string(text), strconv.FormatUint(hash, 10)
+	}
+	return e
+}
+
+// selectList is the dialect's text for every column, aliased c0, c1, …, then the row's
+// text and checksum as row_text and row_hash. Columns are read through the dialect's
+// ColumnReader, given the type each is declared with.
+func (c *conformanceCase) selectList(t *testing.T, d Dialect, typeName func(testColumn) string) []string {
+	t.Helper()
+	declared := make(map[string]string, len(c.cols))
+	for _, col := range c.cols {
+		declared[col.spec.Name] = typeName(col)
+	}
+	read := func(col canon.Column) string { return Read(d, declared[col.Name], d.QuoteIdent(col.Name)) }
+	selects := make([]string, 0, len(c.cols)+2)
+	for j, col := range c.cols {
+		text, err := d.ValueText(col.spec, read(col.spec))
+		if err != nil {
+			t.Fatal(err)
+		}
+		selects = append(selects, fmt.Sprintf("%s AS c%d", text, j))
+	}
+	rowText, err := RowText(d, c.enc, read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowHash, err := RowHash(d, c.enc, read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashText, err := d.ValueText(canon.Column{Name: "hash", Type: canon.TypeInt}, rowHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(selects, rowText+" AS row_text", hashText+" AS row_hash")
+}
+
 // runConformance builds a table of generated rows on the engine, has the dialect compute
 // every column's canonical text and each row's text and checksum there, and compares them
 // with the Go reference.
@@ -233,63 +344,26 @@ func runConformance(t *testing.T, e *engine) {
 	}
 	const rows = 4000
 	d := e.dialect
-	cols := conformanceColumns()
-	specs := make([]canon.Column, len(cols))
-	for i, c := range cols {
-		specs[i] = c.spec
-	}
-	enc, err := canon.NewEncoder(specs)
-	if err != nil {
-		t.Fatal(err)
-	}
+	c := newConformanceCase(t, rows)
 
-	// The table and its contents, from a fixed seed: every engine sees the same rows.
-	rng := rand.New(rand.NewPCG(2026, 11)) //nolint:gosec // deterministic test data, not security
-	data := make([][]raw, rows)
 	var script strings.Builder
 	script.WriteString(e.setup)
 	fmt.Fprintf(&script, "CREATE %s t (id INTEGER", e.tableKind)
-	for _, c := range cols {
-		fmt.Fprintf(&script, ", %s %s", d.QuoteIdent(c.spec.Name), e.typeName(c))
+	for _, col := range c.cols {
+		fmt.Fprintf(&script, ", %s %s", d.QuoteIdent(col.spec.Name), e.typeName(col))
 	}
 	script.WriteString(");\n")
 	for id := range rows {
-		data[id] = make([]raw, len(cols))
-		lits := make([]string, len(cols))
-		for j, c := range cols {
-			data[id][j] = c.gen(rng)
-			lits[j] = e.literal(c, &data[id][j])
+		lits := make([]string, len(c.cols))
+		for j, col := range c.cols {
+			lits[j] = e.literal(col, &c.data[id][j])
 		}
 		fmt.Fprintf(&script, "INSERT INTO t VALUES (%d, %s);\n", id, strings.Join(lits, ", "))
 	}
 
-	// One text expression per column, then the row's text and checksum. The checksum is
-	// turned into text by the dialect itself, as an integer column.
-	selects := []string{"id"}
-	for j, c := range cols {
-		text, textErr := d.ValueText(c.spec, d.QuoteIdent(c.spec.Name))
-		if textErr != nil {
-			t.Fatal(textErr)
-		}
-		selects = append(selects, fmt.Sprintf("%s AS c%d", text, j))
-	}
-	rowText, err := RowText(d, enc, Quoted(d))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rowHash, err := RowHash(d, enc, Quoted(d))
-	if err != nil {
-		t.Fatal(err)
-	}
-	hashText, err := d.ValueText(canon.Column{Name: "hash", Type: canon.TypeInt}, rowHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	selects = append(selects, rowText+" AS row_text", hashText+" AS row_hash")
-
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	got, err := e.run(ctx, cli, script.String(), strings.Join(selects, ", "))
+	got, err := e.run(ctx, cli, script.String(), "id, "+strings.Join(c.selectList(t, d, e.typeName), ", "))
 	if err != nil {
 		t.Fatalf("%s: %v", e.name, err)
 	}
@@ -297,51 +371,25 @@ func runConformance(t *testing.T, e *engine) {
 		t.Fatalf("%s returned %d rows, want %d", e.name, len(got), rows)
 	}
 
-	columnEncoders := make([]*canon.Encoder, len(cols))
-	for j, c := range cols {
-		if columnEncoders[j], err = canon.NewEncoder([]canon.Column{c.spec}); err != nil {
-			t.Fatal(err)
-		}
-	}
 	var boundary, failures int
 	for id, row := range got {
-		values := make([]canon.Value, len(cols))
-		rowComparable := true
-		for j, c := range cols {
-			values[j] = c.value(t, &data[id][j])
-			want, err := columnEncoders[j].AppendRow(nil, values[j:j+1])
-			if err != nil {
-				t.Fatal(err)
-			}
+		want := c.expected(t, id)
+		for j, col := range c.cols {
 			text, _ := row[fmt.Sprintf("c%d", j)].(string)
-			if text == string(want) {
-				continue
-			}
-			if onLogBucketEdge(c.spec.Tolerance, &data[id][j]) {
+			switch {
+			case want.edge[j]:
 				// ln is rounded differently across math libraries, so a value within a few
 				// units in the last place of a log-bucket edge can land on either side. That
 				// costs a row-level check, never a missed difference (ADR 0001).
 				boundary++
-				rowComparable = false
-				continue
+			case text != want.texts[j]:
+				failures++
+				t.Errorf("row %d, column %q (%s): %s %q, reference %q", id, col.spec.Name, e.literal(col, &c.data[id][j]), e.name, text, want.texts[j])
 			}
+		}
+		if want.rowChecked() && (row["row_text"] != want.rowText || row["row_hash"] != want.hash) {
 			failures++
-			t.Errorf("row %d, column %q (%s): %s %q, reference %q", id, c.spec.Name, e.literal(c, &data[id][j]), e.name, text, want)
-		}
-		if !rowComparable {
-			continue
-		}
-		wantText, err := enc.AppendRow(nil, values)
-		if err != nil {
-			t.Fatal(err)
-		}
-		wantHash, err := enc.Hash60(values)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if row["row_text"] != string(wantText) || row["row_hash"] != strconv.FormatUint(wantHash, 10) {
-			failures++
-			t.Errorf("row %d: %s %q (hash %v), reference %q (hash %d)", id, e.name, row["row_text"], row["row_hash"], wantText, wantHash)
+			t.Errorf("row %d: %s %q (hash %v), reference %q (hash %s)", id, e.name, row["row_text"], row["row_hash"], want.rowText, want.hash)
 		}
 		if failures > 20 {
 			t.Fatal("too many differences; stopping")
@@ -351,7 +399,7 @@ func runConformance(t *testing.T, e *engine) {
 		t.Errorf("%d values fell on a log-bucket edge; expected well under 0.1%%", boundary)
 	}
 	t.Logf("%s: %d rows × %d columns matched the reference; %d values on a log-bucket edge",
-		e.name, rows, len(cols), boundary)
+		e.name, rows, len(c.cols), boundary)
 }
 
 // commandOutput runs an engine's CLI with a script on stdin and returns what it printed.

@@ -165,6 +165,39 @@ jobs:
       - name: recon diff through the pgx driver
         run: go test -count=1 -race -run 'EngineDriverPostgres' -v ./cmd/recon
 
+  conformance-databricks:
+    # Databricks can't run in CI, but its SQL is Spark SQL: the generated conformance
+    # script runs on a local Spark, the open-source engine Databricks Runtime is built on.
+    # Snowflake's script has no local equivalent and is run by hand (ADR 0010).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        spark: ["3.5", "4"]  # the Spark lines current Databricks Runtime LTS releases are built on
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PySpark (hash-pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/spark"
+          "$RUNNER_TEMP/spark/bin/pip" install --require-hashes --no-deps -r ".github/requirements/spark-${SPARK}/requirements.txt"
+        env:
+          SPARK: ${{ matrix.spark }}
+      # Java 17, which both Spark lines support; the runner's default Java is newer than
+      # Spark 3.5 runs on. JAVA_HOME_17_X64 is a runner variable, not in the env context.
+      - name: Databricks conformance script on Spark, ANSI on, non-UTC session
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          "$JAVA_HOME/bin/java" -version
+          "$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql America/Sao_Paulo true
+      - name: The same, ANSI off, UTC session
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          "$RUNNER_TEMP/spark/bin/python" -I .github/scripts/run-spark-sql.py internal/dialect/testdata/conformance/databricks.sql UTC false
+
   vulnerabilities:
     runs-on: ubuntu-latest
     permissions:

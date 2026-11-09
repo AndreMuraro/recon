@@ -182,8 +182,8 @@ func Match(left, right *Table, ld, rd dialect.Dialect, opts *Options) (*Plan, er
 	}
 	return &Plan{
 		Encoder: enc,
-		Left:    func(c canon.Column) string { return ld.QuoteIdent(lnames[c.Name]) },
-		Right:   func(c canon.Column) string { return rd.QuoteIdent(rnames[c.Name]) },
+		Left:    func(c canon.Column) string { return read(ld, lcols, lnames[c.Name]) },
+		Right:   func(c canon.Column) string { return read(rd, rcols, rnames[c.Name]) },
 	}, nil
 }
 
@@ -270,6 +270,11 @@ func (m *matcher) pair(lc, rc *Column) (canon.Column, bool) {
 		col.Tolerance = tol
 	}
 	return col, true
+}
+
+// read returns the expression that reads a column of one side.
+func read(d dialect.Dialect, cols map[string]*Column, name string) string {
+	return dialect.Read(d, cols[fold(name)].DataType, d.QuoteIdent(name))
 }
 
 func (t *Table) describe() string { return t.Engine + " " + strings.Join(t.Name, ".") }

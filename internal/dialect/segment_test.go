@@ -41,7 +41,7 @@ func TestSegmentQueriesHaveNoOrderBy(t *testing.T) {
 			if strings.Contains(strings.ToUpper(q), "ORDER BY") {
 				t.Errorf("%s: %s", d.Name(), q)
 			}
-			if !strings.Contains(q, `FROM "s"."t"`) {
+			if !strings.Contains(q, "FROM "+d.QuoteIdent("s")+"."+d.QuoteIdent("t")) {
 				t.Errorf("%s: table not quoted part by part: %s", d.Name(), q)
 			}
 		}

@@ -29,6 +29,19 @@ go test -run='^$' -fuzz=FuzzStringRowsRoundTrip -fuzztime=5m ./internal/canon
 A failing fuzz input is saved under `testdata/fuzz/`. Commit it with the fix, so it stays
 a regression test.
 
+## Snowflake and Databricks
+
+Their conformance runs as generated scripts (ADR 0010). After changing a dialect or the
+canonical encoding, regenerate them, or the tests fail:
+
+```console
+go test ./internal/dialect -run ConformanceScripts -update
+```
+
+CI runs the Databricks script on Spark. Run the Snowflake script
+(`internal/dialect/testdata/conformance/snowflake.sql`) in a Snowflake worksheet after
+any change to the Snowflake dialect, and say in the pull request that it returned `pass`.
+
 ## Decisions
 
 Anything that changes behaviour across engines, adds a dependency, or changes the public
