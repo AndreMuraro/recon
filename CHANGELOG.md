@@ -52,6 +52,9 @@ All notable changes are recorded here. The format follows
   Snowflake one is run by hand. Snowflake timestamps with nanoseconds are compared, not
   truncated; Databricks `TIMESTAMP_NTZ` is read as UTC whatever the session time zone.
 - Three-part table names are looked up in that catalog's `information_schema`.
+- Snowflake and Databricks drivers (gosnowflake v2, databricks-sql-go), pure Go, with
+  `snowflake://` and `databricks://` URLs and credentials from `SNOWFLAKE_PASSWORD` and
+  `DATABRICKS_TOKEN` or the URL's authenticator (ADR 0011).
 - `recon version` and `recon help`.
 
 ### Changed
