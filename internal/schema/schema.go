@@ -232,9 +232,12 @@ func (m *matcher) checkOptions(lcols, rcols map[string]*Column) {
 // pair works out how a column present on both sides is compared.
 func (m *matcher) pair(lc, rc *Column) (canon.Column, bool) {
 	ok := true
-	for _, c := range []*Column{lc, rc} {
-		if c.Unsupported != nil {
-			m.problems = append(m.problems, fmt.Errorf("%w: %w; exclude it to compare the rest", ErrSchema, c.Unsupported))
+	for _, s := range []struct {
+		side string
+		c    *Column
+	}{{"left", lc}, {"right", rc}} {
+		if s.c.Unsupported != nil {
+			m.problems = append(m.problems, fmt.Errorf("%w: on the %s, %w; exclude it to compare the rest", ErrSchema, s.side, s.c.Unsupported))
 			ok = false
 		}
 	}

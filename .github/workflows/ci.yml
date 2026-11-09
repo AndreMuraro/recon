@@ -141,6 +141,7 @@ jobs:
           --health-retries 30
     env:
       RECON_POSTGRES: psql postgresql://postgres@localhost:5432/postgres
+      RECON_POSTGRES_URL: postgres://postgres@localhost:5432/postgres?sslmode=disable
       RECON_DUCKDB: duckdb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -161,6 +162,8 @@ jobs:
         run: go test -count=1 -race -run 'EngineDuckDBToPostgres' -v ./internal/schema
       - name: recon diff from DuckDB to Postgres
         run: go test -count=1 -race -run 'EngineDiffDuckDBToPostgres' -v ./cmd/recon
+      - name: recon diff through the pgx driver
+        run: go test -count=1 -race -run 'EngineDriverPostgres' -v ./cmd/recon
 
   vulnerabilities:
     runs-on: ubuntu-latest

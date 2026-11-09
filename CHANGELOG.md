@@ -42,7 +42,10 @@ All notable changes are recorded here. The format follows
   given connection URLs, table names and the key, with `--exclude`, `--tolerance`, limits
   and a timeout. Text or JSON reports, to standard output or a file. Exit codes 0 equal,
   1 differs, 3 incomplete, 2 error. Passwords in URLs are redacted from every message.
-  Database drivers aren't included yet; the command says so.
+  Builds without an engine's driver say so.
+- The PostgreSQL driver: pgx v5 through `database/sql`, pure Go, so releases stay
+  static (ADR 0008). Connection settings follow libpq: `PGPASSWORD`, `.pgpass`, service
+  files. Tested end to end on Postgres 15 to 18.
 - `recon version` and `recon help`.
 
 ### Changed
