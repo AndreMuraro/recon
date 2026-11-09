@@ -174,7 +174,8 @@ func genTimestamp(withZone bool) func(*rand.Rand) raw {
 		}
 		v := raw{null: maybeNull(r), t: t, zone: time.UTC}
 		if withZone && t.Year() > 1 && t.Year() < 9999 {
-			v.zone = time.FixedZone("", (r.IntN(27)-12)*3600+r.IntN(2)*1800)
+			// Offsets in use run from -12:00 to +14:00; Snowflake rejects anything beyond.
+			v.zone = time.FixedZone("", min((r.IntN(27)-12)*3600+r.IntN(2)*1800, 14*3600))
 		}
 		return v
 	}

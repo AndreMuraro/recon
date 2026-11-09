@@ -3,10 +3,13 @@ package dialect
 import (
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AndreMuraro/recon/internal/canon"
 )
@@ -32,10 +35,15 @@ type scriptEngine struct {
 	dialect  Dialect
 	typeName func(testColumn) string
 	literal  func(testColumn, *raw) string
+	// convert, when set, turns the text literal holds into the column's type: VALUES then
+	// holds only string literals and NULL, for engines whose VALUES takes nothing else.
+	convert func(c testColumn, expr string) string
 	// setup is shown as an instruction above the statement.
 	setup string
 }
 
+// Snowflake's VALUES accepts only constants that it can evaluate while compiling, which
+// excludes most conversion functions. Its rows are text, converted in the next step.
 var snowflakeScript = scriptEngine{
 	dialect: Snowflake{},
 	typeName: func(c testColumn) string {
@@ -48,18 +56,64 @@ var snowflakeScript = scriptEngine{
 		return genericTypes("NUMBER", "DOUBLE", "VARCHAR")(c)
 	},
 	literal: func(c testColumn, v *raw) string {
-		switch {
-		case v.null:
+		if v.null {
 			return "NULL"
-		case c.spec.Type == canon.TypeTimestamp && c.zoned:
-			return fmt.Sprintf("TO_TIMESTAMP_TZ('%s', 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')",
-				v.t.In(v.zone).Format("2006-01-02 15:04:05.000000 -07:00"))
-		case c.spec.Type == canon.TypeTimestamp:
-			return fmt.Sprintf("TO_TIMESTAMP_NTZ('%s', 'YYYY-MM-DD HH24:MI:SS.FF6')", v.t.Format("2006-01-02 15:04:05.000000"))
-		case c.spec.Type == canon.TypeDecimal:
-			return fmt.Sprintf("CAST('%s' AS NUMBER(%d, %d))", v.dec, c.precision, c.spec.Scale)
 		}
-		return standardLiteral(floatCast("DOUBLE", "NaN", "inf"), Snowflake{}.StringLiteral)(c, v)
+		var text string
+		switch c.spec.Type {
+		case canon.TypeInt:
+			text = strconv.FormatInt(v.i, 10)
+		case canon.TypeDecimal:
+			text = v.dec
+		case canon.TypeFloat:
+			text = floatLiteral(v.f)
+			switch {
+			case math.IsNaN(v.f):
+				text = "NaN"
+			case math.IsInf(v.f, 1):
+				text = "inf"
+			case math.IsInf(v.f, -1):
+				text = "-inf"
+			}
+		case canon.TypeBool:
+			text = strings.ToUpper(strconv.FormatBool(v.b))
+		case canon.TypeDate:
+			text = v.t.Format(time.DateOnly)
+		case canon.TypeTimestamp:
+			if c.zoned {
+				text = v.t.In(v.zone).Format("2006-01-02 15:04:05.000000 -07:00")
+			} else {
+				text = v.t.Format("2006-01-02 15:04:05.000000")
+			}
+		case canon.TypeString:
+			text = v.s
+		case canon.TypeInvalid:
+			panic("unknown type")
+		}
+		return Snowflake{}.StringLiteral(text)
+	},
+	convert: func(c testColumn, expr string) string {
+		switch c.spec.Type {
+		case canon.TypeInt:
+			return "CAST(" + expr + " AS NUMBER(38, 0))"
+		case canon.TypeDecimal:
+			return fmt.Sprintf("CAST(%s AS NUMBER(%d, %d))", expr, c.precision, c.spec.Scale)
+		case canon.TypeFloat:
+			return "CAST(" + expr + " AS DOUBLE)"
+		case canon.TypeBool:
+			return "CAST(" + expr + " AS BOOLEAN)"
+		case canon.TypeDate:
+			return "TO_DATE(" + expr + ", 'YYYY-MM-DD')"
+		case canon.TypeTimestamp:
+			if c.zoned {
+				return "TO_TIMESTAMP_TZ(" + expr + ", 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM')"
+			}
+			return "TO_TIMESTAMP_NTZ(" + expr + ", 'YYYY-MM-DD HH24:MI:SS.FF6')"
+		case canon.TypeString:
+			return expr
+		case canon.TypeInvalid:
+		}
+		panic("unknown type")
 	},
 	setup: "Run in any warehouse; it reads no table.",
 }
@@ -99,9 +153,24 @@ func conformanceScript(t *testing.T, e *scriptEngine) string {
 	t.Helper()
 	d := e.dialect
 	c := newConformanceCase(t, scriptRows)
+	// In VALUES, plain literals only where the engine converts afterwards (convert);
+	// otherwise typed ones, so that VALUES needs no type inference.
+	plain := e.convert != nil
+	idLit := func(id int) string {
+		if plain {
+			return strconv.Itoa(id)
+		}
+		return fmt.Sprintf("CAST(%d AS BIGINT)", id)
+	}
+	null := func(typ string) string {
+		if plain {
+			return "NULL"
+		}
+		return "CAST(NULL AS " + typ + ")"
+	}
 	typed := func(col testColumn, v *raw) string {
 		if v.null {
-			return "CAST(NULL AS " + e.typeName(col) + ")" // so VALUES needs no type inference
+			return null(e.typeName(col))
 		}
 		return e.literal(col, v)
 	}
@@ -120,9 +189,13 @@ func conformanceScript(t *testing.T, e *scriptEngine) string {
 	for _, col := range c.cols {
 		names = append(names, d.QuoteIdent(col.spec.Name))
 	}
-	fmt.Fprintf(&b, "WITH t (%s) AS (\n  SELECT * FROM VALUES\n", strings.Join(names, ", "))
+	table := "t"
+	if plain {
+		table = "t_text"
+	}
+	fmt.Fprintf(&b, "WITH %s (%s) AS (\n  SELECT * FROM VALUES\n", table, strings.Join(names, ", "))
 	for id := range c.data {
-		lits := []string{fmt.Sprintf("CAST(%d AS BIGINT)", id)}
+		lits := []string{idLit(id)}
 		for j, col := range c.cols {
 			lits = append(lits, typed(col, &c.data[id][j]))
 		}
@@ -133,6 +206,14 @@ func conformanceScript(t *testing.T, e *scriptEngine) string {
 		fmt.Fprintf(&b, "    (%s)%s\n", strings.Join(lits, ", "), sep)
 	}
 	b.WriteString("),\n")
+	if plain {
+		converted := []string{"id"}
+		for _, col := range c.cols {
+			name := d.QuoteIdent(col.spec.Name)
+			converted = append(converted, e.convert(col, name)+" AS "+name)
+		}
+		fmt.Fprintf(&b, "t AS (\n  SELECT %s\n  FROM t_text\n),\n", strings.Join(converted, ",\n    "))
+	}
 
 	// The dialect's texts.
 	fmt.Fprintf(&b, "got AS (\n  SELECT id,\n    %s\n  FROM t\n),\n", strings.Join(c.selectList(t, d, e.typeName), ",\n    "))
@@ -145,14 +226,14 @@ func conformanceScript(t *testing.T, e *scriptEngine) string {
 	wantNames = append(wantNames, "row_text", "row_hash")
 	text := func(s string, ok bool) string {
 		if !ok {
-			return "CAST(NULL AS " + d.types().text + ")"
+			return null(d.types().text)
 		}
 		return d.StringLiteral(s)
 	}
 	fmt.Fprintf(&b, "want (%s) AS (\n  SELECT * FROM VALUES\n", strings.Join(wantNames, ", "))
 	for id := range c.data {
 		want := c.expected(t, id)
-		vals := []string{fmt.Sprintf("CAST(%d AS BIGINT)", id)}
+		vals := []string{idLit(id)}
 		for j := range c.cols {
 			vals = append(vals, text(want.texts[j], !want.edge[j]))
 		}
