@@ -174,10 +174,13 @@ func value(col canon.Column, text string) *string {
 	if text == `\N` {
 		return nil
 	}
-	if col.Type == canon.TypeString {
+	switch {
+	case col.Type == canon.TypeString:
 		text = unescape(text)
-	} else if f, err := tolerance.ParseExact(text); col.Type == canon.TypeFloat && err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
-		text = strconv.FormatFloat(f, 'g', -1, 64)
+	case col.Type == canon.TypeFloat:
+		if f, err := tolerance.ParseExact(text); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+			text = strconv.FormatFloat(f, 'g', -1, 64)
+		}
 	}
 	return &text
 }
