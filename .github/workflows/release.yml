@@ -21,7 +21,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go
           cache: false
       - run: go vet ./...
@@ -41,7 +41,7 @@ jobs:
           fetch-depth: 0  # GoReleaser reads the previous tags
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go goreleaser
           cache: false
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3

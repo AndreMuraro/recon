@@ -24,6 +24,10 @@ locally on one version and fail CI on another.
 - **The test matrix keeps `actions/setup-go`.** It tests both supported Go releases at
   their latest patch (ADR 0002), which is a different job from installing one pinned
   toolchain.
+- **mise's own version moves with the lockfile format.** mise 2026.11.1 writes lockfile
+  format 4, which older releases refuse to read. `min_version` in `mise.toml` and the
+  version mise-action installs are kept at or above the release that wrote `mise.lock`,
+  so a contributor on an older mise is told to upgrade instead of installing unverified.
 - **Updates are deliberate.** Dependabot doesn't read `mise.toml`. `mise outdated` lists
   newer releases, and `mise upgrade --bump` updates the pins, followed by `mise lock`.
   Dependabot still updates Go modules and Actions, mise-action included.

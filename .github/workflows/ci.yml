@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go golangci-lint zizmor
       - run: golangci-lint run
       - name: go.mod and go.sum are tidy
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go
       - name: Run every fuzz target for 30 seconds
         # go test -fuzz takes one target in one package, so each is run on its own.
@@ -107,7 +107,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go duckdb
       - run: duckdb -version
       - name: DuckDB conformance
@@ -148,7 +148,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go duckdb
       - run: $RECON_POSTGRES --no-psqlrc --tuples-only --command 'SELECT version()'
       - name: Postgres conformance
@@ -172,7 +172,7 @@ jobs:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go go:golang.org/x/vuln/cmd/govulncheck
       - name: Known vulnerabilities in reachable code (govulncheck)
         run: govulncheck ./...
@@ -188,7 +188,7 @@ jobs:
           fetch-depth: 0  # GoReleaser reads the tags
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b  # v5.2.7
         with:
-          version: 2026.10.25
+          version: 2026.11.4
           install_args: go goreleaser
           cache: false  # these binaries mirror a release; no cache a pull request could have written
       - name: Release configuration is valid, and a snapshot builds for every platform
