@@ -56,7 +56,7 @@ type listFlag []string
 func (l *listFlag) String() string { return strings.Join(*l, ",") }
 
 func (l *listFlag) Set(v string) error {
-	for _, s := range strings.Split(v, ",") {
+	for s := range strings.SplitSeq(v, ",") {
 		if s = strings.TrimSpace(s); s != "" {
 			*l = append(*l, s)
 		}
@@ -74,7 +74,7 @@ func parseTolerances(specs []string) (map[string]tolerance.Tolerance, error) {
 			return nil, fmt.Errorf("--tolerance %q: want column=abs:X, column=rel:X or column=abs:X+rel:Y", spec)
 		}
 		var tol tolerance.Tolerance
-		for _, b := range strings.Split(bounds, "+") {
+		for b := range strings.SplitSeq(bounds, "+") {
 			kind, value, _ := strings.Cut(b, ":")
 			v, err := strconv.ParseFloat(value, 64)
 			switch {

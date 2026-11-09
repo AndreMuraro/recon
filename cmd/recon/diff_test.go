@@ -85,9 +85,11 @@ func engineDeps(queriers map[string]*enginetest.Querier) *deps {
 const ordersDDL = `CREATE TABLE %s (id BIGINT, amount DECIMAL(12, 2), score DOUBLE PRECISION, note VARCHAR);
 INSERT INTO %[1]s VALUES %s;`
 
-func orders(n int, change func(i int, amount, score, note *string) bool) string {
+// orders returns the rows of a 500-row orders table, each passed through change first
+// when it is set. A row for which change returns false is left out.
+func orders(change func(i int, amount, score, note *string) bool) string {
 	var rows []string
-	for i := range n {
+	for i := range 500 {
 		amount, score, note := fmt.Sprintf("%d.%02d", i, i%100), fmt.Sprintf("%d.5", i), fmt.Sprintf("'n%d'", i)
 		if change != nil && !change(i, &amount, &score, &note) {
 			continue
@@ -119,15 +121,18 @@ func TestEngineDiff(t *testing.T) {
 	t.Parallel()
 	q := enginetest.DuckDB.Open(t)
 	left, right := enginetest.DuckDB.Table(t, q, "left"), enginetest.DuckDB.Table(t, q, "right")
-	if err := q.Exec(t.Context(), fmt.Sprintf(ordersDDL, left, orders(500, nil))+
-		fmt.Sprintf(ordersDDL, right, orders(500, rightChanges))); err != nil {
+	if err := q.Exec(t.Context(), fmt.Sprintf(ordersDDL, left, orders(nil))+
+		fmt.Sprintf(ordersDDL, right, orders(rightChanges))); err != nil {
 		t.Fatal(err)
 	}
 	// Each run gets its own deps: the fake clock is not shared between parallel runs.
 	d := func() *deps { return engineDeps(map[string]*enginetest.Querier{"duckdb:left": q, "duckdb:right": q}) }
 	args := func(extra ...string) []string {
-		return append([]string{"diff", "--left", "duckdb:left", "--right", "duckdb:right",
-			"--left-table", left, "--right-table", right, "--key", "ID", "--tolerance", "score=abs:0.01"}, extra...)
+		base := []string{
+			"diff", "--left", "duckdb:left", "--right", "duckdb:right",
+			"--left-table", left, "--right-table", right, "--key", "ID", "--tolerance", "score=abs:0.01",
+		}
+		return append(base, extra...)
 	}
 
 	t.Run("equal", func(t *testing.T) {
@@ -169,7 +174,7 @@ func TestEngineDiff(t *testing.T) {
 		if !strings.HasPrefix(stdout.String(), "status: differs") {
 			t.Errorf("no summary on stdout: %q", stdout.String())
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // the test's own temporary file
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,10 +229,10 @@ func TestEngineDiffDuckDBToPostgres(t *testing.T) {
 	t.Parallel()
 	duck, pg := enginetest.DuckDB.Open(t), enginetest.Postgres.Open(t)
 	left, right := enginetest.DuckDB.Table(t, duck, "recon_cli"), enginetest.Postgres.Table(t, pg, "recon_cli")
-	if err := duck.Exec(t.Context(), fmt.Sprintf(ordersDDL, left, orders(500, nil))); err != nil {
+	if err := duck.Exec(t.Context(), fmt.Sprintf(ordersDDL, left, orders(nil))); err != nil {
 		t.Fatal(err)
 	}
-	if err := pg.Exec(t.Context(), fmt.Sprintf(strings.ReplaceAll(ordersDDL, "VARCHAR", "text"), right, orders(500, rightChanges))); err != nil {
+	if err := pg.Exec(t.Context(), fmt.Sprintf(strings.ReplaceAll(ordersDDL, "VARCHAR", "text"), right, orders(rightChanges))); err != nil {
 		t.Fatal(err)
 	}
 	d := engineDeps(map[string]*enginetest.Querier{"duckdb:left": duck, "postgres://right": pg})
