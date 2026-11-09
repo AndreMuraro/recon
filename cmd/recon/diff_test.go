@@ -156,7 +156,7 @@ func TestEngineDiff(t *testing.T) {
 		for _, want := range []string{
 			"status: differs · 500 left, 499 right rows · 3 differences (1 only left, 0 only right, 2 changed)",
 			"changed    id=10  amount: 10.10 → 999.99",
-			"changed    id=30  score: 3.0500000000000000e+01 → 3.1500000000000000e+01",
+			"changed    id=30  score: 30.5 → 31.5",
 			"only-left  id=40",
 		} {
 			if !strings.Contains(stdout.String(), want) {

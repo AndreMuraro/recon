@@ -1,6 +1,7 @@
 // Package report writes the outcome of a comparison for people (text) and for programs
-// (JSON). Values are shown as the canonical encoding defines them: NULL as null, strings
-// unescaped, floats with 17 significant digits, timestamps in microseconds since 1970.
+// (JSON). Values are shown as the canonical encoding defines them, made readable: NULL as
+// null, strings unescaped, floats in shortest decimal form, timestamps in microseconds
+// since 1970.
 package report
 
 import (
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/AndreMuraro/recon/internal/canon"
 	"github.com/AndreMuraro/recon/internal/diff"
+	"github.com/AndreMuraro/recon/internal/tolerance"
 )
 
 // Status is the verdict of a comparison.
@@ -165,13 +168,21 @@ func display(col canon.Column, text string) string {
 	return *v
 }
 
-// value decodes a comparison text: nil for NULL, strings unescaped.
+// value decodes a comparison text: nil for NULL, strings unescaped, and floats in their
+// shortest decimal form, which reads back as the same float.
 func value(col canon.Column, text string) *string {
 	if text == `\N` {
 		return nil
 	}
-	if col.Type == canon.TypeString {
+	switch col.Type {
+	case canon.TypeString:
 		text = unescape(text)
+	case canon.TypeFloat:
+		if f, err := tolerance.ParseExact(text); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+			text = strconv.FormatFloat(f, 'g', -1, 64)
+		}
+	case canon.TypeInvalid, canon.TypeInt, canon.TypeDecimal, canon.TypeBool, canon.TypeDate, canon.TypeTimestamp:
+		// Their canonical text is already readable.
 	}
 	return &text
 }

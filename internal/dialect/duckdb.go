@@ -96,24 +96,8 @@ func (d DuckDB) ValueText(col canon.Column, expr string) (string, error) {
 	return fmt.Sprintf(`CASE WHEN %s IS NULL THEN '\N' ELSE %s END`, expr, text), nil
 }
 
-// floatText follows tolerance.Bucket and the canonical exact float step by step. x is a
-// DOUBLE expression and is repeated, so it should be a column reference or a cast of one.
+// floatText is the canonical text of a float column; see floatText in dialect.go.
 func (DuckDB) floatText(tol tolerance.Tolerance, x string) string {
 	special := fmt.Sprintf("WHEN isnan(%[1]s) THEN 'nan' WHEN isinf(%[1]s) AND %[1]s > 0 THEN 'inf' WHEN isinf(%[1]s) THEN '-inf'", x)
-	exact := fmt.Sprintf("CASE WHEN %[1]s = 0 THEN '%[2]s' ELSE printf('%%.%[3]de', %[1]s) END",
-		x, exactFloatText(0), canon.ExactFloatDigits-1)
-	switch {
-	case tol.IsExact():
-		return fmt.Sprintf("CASE %s ELSE %s END", special, exact)
-	case tol.UsesAbsBuckets():
-		q := fmt.Sprintf("(%s / %s)", x, floatLiteral(tol.AbsWidth()))
-		return fmt.Sprintf("CASE %s WHEN abs(%s) >= %s THEN '=' || %s ELSE '~' || CAST(CAST(floor(%s) AS BIGINT) AS VARCHAR) END",
-			special, x, floatLiteral(tol.AbsLimit()), exact, q)
-	default:
-		index := func(abs string) string {
-			return fmt.Sprintf("CAST(CAST(floor(ln(%s) / %s) AS BIGINT) AS VARCHAR)", abs, floatLiteral(tol.LogWidth()))
-		}
-		return fmt.Sprintf("CASE %s WHEN %s = 0 THEN '~0~' WHEN %s < 0 THEN '~-~' || %s ELSE '~' || %s END",
-			special, x, x, index("-"+x), index(x))
-	}
+	return floatText(tol, x, special, sqlTypes{double: "DOUBLE", text: "VARCHAR"})
 }

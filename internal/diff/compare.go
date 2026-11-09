@@ -3,10 +3,10 @@ package diff
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 
 	"github.com/AndreMuraro/recon/internal/canon"
+	"github.com/AndreMuraro/recon/internal/tolerance"
 )
 
 // ErrRows reports rows a side returned that break the contract of [Side.Rows].
@@ -137,17 +137,9 @@ func equalText(col canon.Column, a, b string) (bool, error) {
 
 // parseFloatText reads an exact float's canonical text.
 func parseFloatText(s string) (float64, error) {
-	switch s {
-	case "nan":
-		return math.NaN(), nil
-	case "inf":
-		return math.Inf(1), nil
-	case "-inf":
-		return math.Inf(-1), nil
-	}
-	f, err := strconv.ParseFloat(s, 64)
+	f, err := tolerance.ParseExact(s)
 	if err != nil {
-		return 0, fmt.Errorf("%w: float text %q", ErrRows, s)
+		return 0, fmt.Errorf("%w: %w", ErrRows, err)
 	}
 	return f, nil
 }

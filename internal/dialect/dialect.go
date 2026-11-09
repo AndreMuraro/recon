@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/AndreMuraro/recon/internal/canon"
+	"github.com/AndreMuraro/recon/internal/tolerance"
 )
 
 // ErrUnsupported reports a column the dialect cannot encode.
@@ -88,8 +89,58 @@ func floatLiteral(f float64) string {
 	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
-// exactFloatText formats f the way the canonical encoding does for exact floats: C's
-// %.16e. Used for the constant zero.
-func exactFloatText(f float64) string {
-	return strconv.FormatFloat(f, 'e', canon.ExactFloatDigits-1, 64)
+// floatText returns the canonical text of x, a double expression, under tol: the special
+// values, then either the exact text or tolerance.Bucket's, step by step. special holds
+// the engine's WHEN clauses for NaN and the infinities, which engines test differently.
+func floatText(tol tolerance.Tolerance, x, special string, t sqlTypes) string {
+	exact := fmt.Sprintf("CASE WHEN %s = 0 THEN '0' ELSE %s END", x, exactFloatSQL(x, t))
+	index := func(expr string) string {
+		return "CAST(CAST(floor(" + expr + ") AS BIGINT) AS " + t.text + ")"
+	}
+	switch {
+	case tol.IsExact():
+		return fmt.Sprintf("CASE %s ELSE %s END", special, exact)
+	case tol.UsesAbsBuckets():
+		return fmt.Sprintf("CASE %s WHEN abs(%s) >= %s THEN '=' || %s ELSE '~' || %s END",
+			special, x, floatLiteral(tol.AbsLimit()), exact, index(fmt.Sprintf("%s / %s", x, floatLiteral(tol.AbsWidth()))))
+	default:
+		logIndex := func(abs string) string {
+			return index(fmt.Sprintf("ln(%s) / %s", abs, floatLiteral(tol.LogWidth())))
+		}
+		return fmt.Sprintf("CASE %s WHEN %s = 0 THEN '~0~' WHEN %s < 0 THEN '~-~' || %s ELSE '~' || %s END",
+			special, x, x, logIndex("-"+x), logIndex(x))
+	}
+}
+
+// sqlTypes names the engine types the shared SQL builders cast to.
+type sqlTypes struct {
+	double string // a 64-bit float
+	text   string // a string of any length
+}
+
+// exactFloatSQL returns a text expression for the canonical exact text of x, a nonzero,
+// finite double expression (tolerance.AppendExact): "<m>p<q>", with m the significand
+// and q the exponent of its lowest bit.
+//
+// Only ln, power, floor, comparisons and division by powers of two are used. The last are
+// exact, and powers of two are exact in every engine's power function, so the result is
+// exact wherever ln is accurate to well within a unit: floor(log2|x|) is estimated from
+// ln and corrected by comparing |x| with the powers of two around it. Powers stay within
+// [2^-1022, 2^1023], because Postgres raises an error on float underflow and overflow:
+// subnormal values, whose exponent is fixed at -1074, are scaled up by 2^1000 first.
+//
+// x is repeated many times, so it should be a column reference or a cast of one.
+func exactFloatSQL(x string, t sqlTypes) string {
+	two := "CAST(2 AS " + t.double + ")"
+	a := "abs(" + x + ")"
+	// g estimates e = floor(log2|x|), clamped to the normal range so that 2^g and 2^(g+1)
+	// are normal floats.
+	g := fmt.Sprintf("least(greatest(floor(ln(%s) / ln(%s)), -1022), 1023)", a, two)
+	e := fmt.Sprintf("(CASE WHEN power(%[1]s, %[2]s) > %[3]s THEN %[2]s - 1 WHEN %[2]s >= 1023 THEN %[2]s "+
+		"WHEN power(%[1]s, %[2]s + 1) <= %[3]s THEN %[2]s + 1 ELSE %[2]s END)", two, g, a)
+	q := fmt.Sprintf("(greatest(%s, -1022) - 52)", e)
+	m := fmt.Sprintf("(CASE WHEN %[2]s < -900 THEN (%[3]s * power(%[1]s, 1000)) / power(%[1]s, %[2]s + 1000) "+
+		"ELSE %[3]s / power(%[1]s, %[2]s) END)", two, q, a)
+	text := func(n string) string { return "CAST(CAST(" + n + " AS BIGINT) AS " + t.text + ")" }
+	return fmt.Sprintf("(CASE WHEN %s < 0 THEN '-' ELSE '' END || %s || 'p' || %s)", x, text(m), text(q))
 }

@@ -115,7 +115,7 @@ func genFloat(width float64) func(*rand.Rand) raw {
 	w := width / 2
 	return func(r *rand.Rand) raw {
 		var f float64
-		switch r.IntN(8) {
+		switch r.IntN(10) {
 		case 0: // any float64 bit pattern, NaN and infinities included
 			f = math.Float64frombits(r.Uint64())
 		case 1: // exactly on an absolute bucket edge, or one step either side of it
@@ -127,6 +127,17 @@ func genFloat(width float64) func(*rand.Rand) raw {
 			f = []float64{0, math.Copysign(0, -1), math.NaN(), math.Inf(1), math.Inf(-1), 5e-324, math.MaxFloat64, 1e5, 0.1}[r.IntN(9)]
 		case 4:
 			f = float64(r.Int64N(1_000_000) - 500_000)
+		case 5: // a power of two, or one step either side: where floor(log2|x|) changes
+			p := math.Ldexp(1, r.IntN(2046)-1022)
+			f = []float64{p, math.Nextafter(p, 0), math.Nextafter(p, math.Inf(1))}[r.IntN(3)]
+			if r.IntN(2) == 0 {
+				f = -f
+			}
+		case 6: // subnormal, or near the smallest normal
+			f = math.Float64frombits(r.Uint64N(1 << 53)) // exponent bits 0 or 1
+			if r.IntN(2) == 0 {
+				f = -f
+			}
 		default:
 			f = (r.Float64()*2 - 1) * math.Pow(10, float64(r.IntN(40)-20))
 		}

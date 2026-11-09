@@ -26,8 +26,8 @@ func sample() *Report {
 				{Key: 3, Kind: diff.OnlyLeft, Left: []string{"3", `a\|b`, `\N`}},
 				{
 					Key: 7, Kind: diff.Changed, Columns: []string{"label", "score"},
-					Left:  []string{"7", `back\\slash`, "1.0000000000000000e+00"},
-					Right: []string{"7", `\N`, "2.0000000000000000e+00"},
+					Left:  []string{"7", `back\\slash`, "4503599627370496p-52"},
+					Right: []string{"7", `\N`, "4503599627370496p-51"},
 				},
 				{Key: 9, Kind: diff.OnlyRight, Right: []string{"9", "", "nan"}},
 			},
@@ -46,7 +46,7 @@ func TestText(t *testing.T) {
 changed columns: label 1, score 1
 
 only-left  id=3
-changed    id=7  label: "back\\slash" → NULL  score: 1.0000000000000000e+00 → 2.0000000000000000e+00
+changed    id=7  label: "back\\slash" → NULL  score: 1 → 2
 only-right id=9
 `
 	if got := b.String(); got != want {
@@ -117,7 +117,7 @@ func TestJSON(t *testing.T) {
 		t.Errorf("document: %s", b.String())
 	}
 	d := doc.Differences[1]
-	if d.Kind != "changed" || *d.Left["label"] != `back\slash` || d.Right["label"] != nil || *d.Right["score"] != "2.0000000000000000e+00" {
+	if d.Kind != "changed" || *d.Left["label"] != `back\slash` || d.Right["label"] != nil || *d.Right["score"] != "2" {
 		t.Errorf("changed row: %+v", d)
 	}
 	if l := doc.Differences[0].Left["label"]; *l != "a|b" || doc.Differences[0].Right != nil {

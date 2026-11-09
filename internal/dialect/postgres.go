@@ -98,26 +98,9 @@ func (p Postgres) ValueText(col canon.Column, expr string) (string, error) {
 	return fmt.Sprintf(`CASE WHEN %s IS NULL THEN E'\\N' ELSE %s END`, expr, text), nil
 }
 
-// floatText follows tolerance.Bucket and the canonical exact float step by step. In
-// Postgres NaN equals NaN, so the special values can be matched with =.
+// floatText is the canonical text of a float column; see floatText in dialect.go.
+// In Postgres NaN equals NaN, so the special values can be matched with =.
 func (Postgres) floatText(tol tolerance.Tolerance, x string) string {
 	special := fmt.Sprintf("WHEN %[1]s = 'NaN' THEN 'nan' WHEN %[1]s = 'Infinity' THEN 'inf' WHEN %[1]s = '-Infinity' THEN '-inf'", x)
-	// to_char with EEEE formats like C's %.16e, with a space where a minus sign would go.
-	pattern := "9." + strings.Repeat("9", canon.ExactFloatDigits-1) + "EEEE"
-	exact := fmt.Sprintf("CASE WHEN %[1]s = 0 THEN '%[2]s' ELSE ltrim(to_char(%[1]s, '%[3]s')) END",
-		x, exactFloatText(0), pattern)
-	switch {
-	case tol.IsExact():
-		return fmt.Sprintf("CASE %s ELSE %s END", special, exact)
-	case tol.UsesAbsBuckets():
-		q := fmt.Sprintf("(%s / %s)", x, floatLiteral(tol.AbsWidth()))
-		return fmt.Sprintf("CASE %s WHEN abs(%s) >= %s THEN '=' || %s ELSE '~' || CAST(CAST(floor(%s) AS bigint) AS text) END",
-			special, x, floatLiteral(tol.AbsLimit()), exact, q)
-	default:
-		index := func(abs string) string {
-			return fmt.Sprintf("CAST(CAST(floor(ln(%s) / %s) AS bigint) AS text)", abs, floatLiteral(tol.LogWidth()))
-		}
-		return fmt.Sprintf("CASE %s WHEN %s = 0 THEN '~0~' WHEN %s < 0 THEN '~-~' || %s ELSE '~' || %s END",
-			special, x, x, index("-"+x), index(x))
-	}
+	return floatText(tol, x, special, sqlTypes{double: "double precision", text: "text"})
 }

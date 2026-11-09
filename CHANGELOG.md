@@ -52,9 +52,10 @@ All notable changes are recorded here. The format follows
 - Tool versions (Go, golangci-lint, govulncheck, GoReleaser, zizmor, the DuckDB CLI) are
   pinned once in `mise.toml`, installed by mise locally and in CI, with `mise run check`
   for the local equivalent of CI (ADR 0005).
-- Floats compared exactly are encoded with 17 significant digits in scientific notation
-  (`%.16e`), a format engines can reproduce; shortest-digit printing differs between
-  them.
+- Floats compared exactly are encoded as their binary significand and exponent,
+  `<m>p<q>`, which every engine computes with exact arithmetic (ADR 0009). The earlier
+  `%.16e` text can't be produced on Databricks, whose formatter is Java's. Reports show
+  floats in shortest decimal form.
 
 ### Fixed
 - Absolute-tolerance buckets of huge floats divided before checking the limit, which
