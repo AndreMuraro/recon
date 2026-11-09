@@ -2,6 +2,7 @@ package schema
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,14 +24,22 @@ func TestEngineIntrospect(t *testing.T) {
 		ddl  string
 		want map[string]string // column → canonical type, scale for decimals; "" when unsupported
 	}{
-		{enginetest.DuckDB,
-			`"Id" INTEGER, amount DECIMAL(10, 2), score DOUBLE, note VARCHAR, flag BOOLEAN, day DATE, ts TIMESTAMP, ts_tz TIMESTAMPTZ, u UUID`,
-			map[string]string{"Id": "int", "amount": "decimal 2", "score": "float", "note": "string", "flag": "bool",
-				"day": "date", "ts": "timestamp", "ts_tz": "timestamp", "u": ""}},
-		{enginetest.Postgres,
-			`"Id" integer, amount numeric(12, 3), score double precision, note varchar(20), flag boolean, day date, ts timestamp, ts_tz timestamptz, u uuid`,
-			map[string]string{"Id": "int", "amount": "decimal 3", "score": "float", "note": "string", "flag": "bool",
-				"day": "date", "ts": "timestamp", "ts_tz": "timestamp", "u": ""}},
+		{
+			e:   enginetest.DuckDB,
+			ddl: `"Id" INTEGER, amount DECIMAL(10, 2), score DOUBLE, note VARCHAR, flag BOOLEAN, day DATE, ts TIMESTAMP, ts_tz TIMESTAMPTZ, u UUID`,
+			want: map[string]string{
+				"Id": "int", "amount": "decimal 2", "score": "float", "note": "string", "flag": "bool",
+				"day": "date", "ts": "timestamp", "ts_tz": "timestamp", "u": "",
+			},
+		},
+		{
+			e:   enginetest.Postgres,
+			ddl: `"Id" integer, amount numeric(12, 3), score double precision, note varchar(20), flag boolean, day date, ts timestamp, ts_tz timestamptz, u uuid`,
+			want: map[string]string{
+				"Id": "int", "amount": "decimal 3", "score": "float", "note": "string", "flag": "bool",
+				"day": "date", "ts": "timestamp", "ts_tz": "timestamp", "u": "",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.e.Name, func(t *testing.T) {
@@ -81,7 +90,7 @@ func TestEngineDuckDBToPostgres(t *testing.T) {
 	for i := range 300 {
 		note := fmt.Sprintf("'n%d'", i)
 		lrows = append(lrows, fmt.Sprintf("(%d, %d.%02d, %d, %s, uuid())", i, i, i%100, i*3, note))
-		amount, qty := fmt.Sprintf("%d.%02d", i, i%100), fmt.Sprint(i*3)
+		amount, qty := fmt.Sprintf("%d.%02d", i, i%100), strconv.Itoa(i*3)
 		switch i {
 		case 41:
 			amount += "1" // a third decimal place: a real difference

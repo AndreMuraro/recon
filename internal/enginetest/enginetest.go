@@ -71,7 +71,7 @@ type Engine struct {
 	Name    string
 	Dialect dialect.Dialect
 	envVar  string
-	open    func(t testing.TB, cli []string) *Querier
+	open    func(tb testing.TB, cli []string) *Querier
 	shared  bool // tables outlive the test unless dropped
 }
 
@@ -80,9 +80,9 @@ var DuckDB = &Engine{
 	Name:    "duckdb",
 	Dialect: dialect.DuckDB{},
 	envVar:  "RECON_DUCKDB",
-	open: func(t testing.TB, cli []string) *Querier {
-		t.Helper()
-		db := filepath.Join(t.TempDir(), "recon.duckdb")
+	open: func(tb testing.TB, cli []string) *Querier {
+		tb.Helper()
+		db := filepath.Join(tb.TempDir(), "recon.duckdb")
 		args := []string{"-bail", "-csv", "-noheader"}
 		return &Querier{
 			cli:     append(append(slices.Clip(cli), args...), db),
@@ -106,13 +106,13 @@ var Postgres = &Engine{
 }
 
 // Open returns a Querier for the engine, or skips the test when its variable is unset.
-func (e *Engine) Open(t testing.TB) *Querier {
-	t.Helper()
+func (e *Engine) Open(tb testing.TB) *Querier {
+	tb.Helper()
 	cli := strings.Fields(os.Getenv(e.envVar))
 	if len(cli) == 0 {
-		t.Skip(e.envVar + " is not set")
+		tb.Skip(e.envVar + " is not set")
 	}
-	return e.open(t, cli)
+	return e.open(tb, cli)
 }
 
 var tables atomic.Int64
@@ -120,13 +120,13 @@ var tables atomic.Int64
 // Table returns a table name that no other test, in this run or a concurrent one, uses.
 // On a shared server the table is dropped when the test ends. The name is prefix plus
 // digits: quote it in SQL when prefix needs quoting.
-func (e *Engine) Table(t testing.TB, q *Querier, prefix string) string {
-	t.Helper()
+func (e *Engine) Table(tb testing.TB, q *Querier, prefix string) string {
+	tb.Helper()
 	name := fmt.Sprintf("%s_%d_%d", prefix, os.Getpid(), tables.Add(1))
 	if e.shared {
-		t.Cleanup(func() {
+		tb.Cleanup(func() {
 			if err := q.Exec(context.Background(), "DROP TABLE IF EXISTS "+e.Dialect.QuoteIdent(name)+";"); err != nil {
-				t.Errorf("dropping %s: %v", name, err)
+				tb.Errorf("dropping %s: %v", name, err)
 			}
 		})
 	}

@@ -89,7 +89,7 @@ func parseInfo(row []string) (dialect.ColumnInfo, error) {
 		if err != nil {
 			return 0, fmt.Errorf("column %q: %s %q is not an integer", row[0], what, s)
 		}
-		return int32(v), nil //nolint:gosec // ParseInt with bitSize 32 keeps v in range
+		return int32(v), nil
 	}
 	var err error
 	if row[2] != "" {
