@@ -21,7 +21,7 @@ $ echo $?
 1
 ```
 
-> **Status: early development.** Every part of `recon diff` is built and tested end to end against the real engines' clients, including a DuckDB table against a Postgres one. The database drivers (pgx, duckdb-go) come next; until then, a build of recon reports that it has no driver for the engine ([ADR 0007](docs/adr/0007-the-diff-command.md)).
+> **Status: early development.** `recon diff` works on PostgreSQL today, through the pgx driver ([ADR 0008](docs/adr/0008-postgres-driver.md)), and is tested end to end on Postgres 15 to 18. Its SQL for DuckDB is built and tested too, including DuckDB against Postgres; the DuckDB driver needs cgo and comes in a separate build. Snowflake and Databricks are next.
 
 ## How it works
 
@@ -34,7 +34,7 @@ $ echo $?
 
 | Engine | Driver | Static binary | Status |
 |---|---|---|---|
-| PostgreSQL 14+ | pgx | yes | SQL dialect conforms (15–18 in CI); driver planned |
+| PostgreSQL 14+ | pgx | yes | works: `recon diff` tested end to end on 15–18 |
 | DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | SQL dialect conforms; driver planned |
 | Snowflake | gosnowflake | yes | planned |
 | Databricks | databricks-sql-go | yes | planned |
@@ -64,7 +64,8 @@ mise run test         # tests, with the race detector
 mise run engines      # conformance and diff tests on DuckDB
 
 # Postgres too: point it at a server you can reach with psql
-RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" mise run engines
+RECON_POSTGRES="psql postgresql://postgres@localhost/postgres" \
+RECON_POSTGRES_URL="postgres://postgres@localhost/postgres" mise run engines
 
 go test -run='^$' -fuzz=FuzzNoFalseNegatives ./internal/tolerance   # fuzz one target
 ```

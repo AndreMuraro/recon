@@ -84,7 +84,7 @@ func TestMatchReportsEveryProblem(t *testing.T) {
 		`"only_left" is only on the left (postgres public.orders)`,
 		`"ONLY_RIGHT" is only on the right (duckdb ORDERS)`,
 		`"note" is text on the left and DOUBLE on the right`,
-		`type jsonb; exclude it`,
+		`on the left, postgres column "doc" has type jsonb; exclude it`,
 		`excluded column "nope"`,
 		`tolerance for "ghost": no such column`,
 		`tolerance for "amount": the column is not a float`,
