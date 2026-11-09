@@ -174,13 +174,15 @@ func value(col canon.Column, text string) *string {
 	if text == `\N` {
 		return nil
 	}
-	switch {
-	case col.Type == canon.TypeString:
+	switch col.Type {
+	case canon.TypeString:
 		text = unescape(text)
-	case col.Type == canon.TypeFloat:
+	case canon.TypeFloat:
 		if f, err := tolerance.ParseExact(text); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
 			text = strconv.FormatFloat(f, 'g', -1, 64)
 		}
+	case canon.TypeInvalid, canon.TypeInt, canon.TypeDecimal, canon.TypeBool, canon.TypeDate, canon.TypeTimestamp:
+		// Their canonical text is already readable.
 	}
 	return &text
 }
