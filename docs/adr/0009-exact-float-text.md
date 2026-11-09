@@ -55,8 +55,9 @@ form, which also reads back as the same float.
 
 ## Consequences
 
-- The exact float expression is long: about 4 KB, with the column read about 45 times. Engines evaluate it per
-  row only for floats compared exactly, and only for rows they hash or fetch.
+- The exact float expression is long: about 4 KB, reading the column about 45 times.
+  Engines evaluate it per row only for floats compared exactly, and only for rows they
+  hash or fetch.
 - Conformance covers the edges this depends on: powers of two and their neighbours
   across the whole exponent range, subnormals, the smallest normal and the largest float.
   Both DuckDB and Postgres match the reference on all of them.
