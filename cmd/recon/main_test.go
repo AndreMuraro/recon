@@ -22,13 +22,13 @@ func TestRun(t *testing.T) {
 		{name: "version help", args: []string{"version", "-h"}, code: exitOK, stderrPart: "Usage of version"},
 		{name: "version extra argument", args: []string{"version", "x"}, code: exitError, stderrPart: `unexpected argument "x"`},
 		{name: "unknown flag", args: []string{"version", "--nope"}, code: exitError, stderrPart: "flag provided but not defined"},
-		{name: "unknown command", args: []string{"diff"}, code: exitError, stderrPart: `unknown command "diff"`},
+		{name: "unknown command", args: []string{"merge"}, code: exitError, stderrPart: `unknown command "merge"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var stdout, stderr bytes.Buffer
-			if code := run(tt.args, &stdout, &stderr); code != tt.code {
+			if code := run(t.Context(), &defaultDeps, tt.args, &stdout, &stderr); code != tt.code {
 				t.Errorf("exit code = %d, want %d (stderr: %s)", code, tt.code, stderr.String())
 			}
 			if tt.stdout != "" && stdout.String() != tt.stdout {

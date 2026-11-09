@@ -3,11 +3,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"runtime/debug"
 )
 
@@ -15,11 +17,12 @@ import (
 // go install fall back to the module version recorded in the binary.
 var version = ""
 
-// Exit codes. Code 1 is kept for "the tables differ": a result, not an error, that CI
-// jobs act on.
+// Exit codes. Codes 1 and 3 are results, not errors, that CI jobs act on.
 const (
-	exitOK    = 0
-	exitError = 2
+	exitOK         = 0
+	exitDiffers    = 1 // the tables differ
+	exitError      = 2
+	exitIncomplete = 3 // no difference found, but a limit left part of the tables uncompared
 )
 
 const usage = `recon proves that a rewritten table matches the original, across warehouses.
@@ -28,23 +31,31 @@ Usage:
   recon <command> [flags]
 
 Commands:
+  diff      compare a table on one engine with a table on another
   version   print the version
   help      show this help
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	// An interrupt cancels the queries in flight instead of leaving them running.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := run(ctx, &defaultDeps, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
-// run is main without the process: it takes arguments and output streams and returns
-// the exit code, so the command line is tested in-process.
-func run(args []string, stdout, stderr io.Writer) int {
+// run is main without the process: it takes arguments, output streams and the outside
+// world's dependencies, and returns the exit code, so the command line is tested
+// in-process.
+func run(ctx context.Context, d *deps, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return exitError
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
+	case "diff":
+		return runDiff(ctx, d, rest, stdout, stderr)
 	case "version":
 		return runVersion(rest, stdout, stderr)
 	case "help", "-h", "-help", "--help":

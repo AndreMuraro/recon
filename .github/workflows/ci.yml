@@ -116,6 +116,8 @@ jobs:
         run: go test -count=1 -race -run 'EngineDuckDB$' -v ./internal/diff
       - name: Schemas on DuckDB
         run: go test -count=1 -race -run 'EngineIntrospect/^duckdb$' -v ./internal/schema
+      - name: recon diff on DuckDB
+        run: go test -count=1 -race -run 'EngineDiff$' -v ./cmd/recon
 
   conformance-postgres:
     runs-on: ubuntu-latest
@@ -157,6 +159,8 @@ jobs:
         run: go test -count=1 -race -run 'EngineIntrospect/^postgres$' -v ./internal/schema
       - name: Schemas matched across DuckDB and Postgres
         run: go test -count=1 -race -run 'EngineDuckDBToPostgres' -v ./internal/schema
+      - name: recon diff from DuckDB to Postgres
+        run: go test -count=1 -race -run 'EngineDiffDuckDBToPostgres' -v ./cmd/recon
 
   vulnerabilities:
     runs-on: ubuntu-latest

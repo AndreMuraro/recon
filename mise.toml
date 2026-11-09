@@ -41,7 +41,7 @@ run = "zizmor --offline .github/workflows/"
 [tasks.engines]
 description = "Conformance and diff tests on DuckDB, and on Postgres when RECON_POSTGRES is set"
 env = { RECON_DUCKDB = "duckdb" }
-run = 'go test -count=1 -run "Conformance|Engine" ./internal/dialect ./internal/diff ./internal/schema'
+run = 'go test -count=1 -run "Conformance|Engine" ./internal/dialect ./internal/diff ./internal/schema ./cmd/recon'
 
 [tasks.snapshot]
 description = "Build every release target locally, without publishing"

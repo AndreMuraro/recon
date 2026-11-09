@@ -8,16 +8,20 @@ You rewrote a Snowflake stored procedure as a Databricks job, or a legacy SQL vi
 
 ```console
 $ recon diff \
-    --left  'snowflake://…/ANALYTICS/FINANCE/VOYAGE_PNL' \
-    --right 'databricks://…/main/finance/voyage_pnl' \
+    --left  'postgres://etl@warehouse:5432/analytics' --left-table finance.voyage_pnl \
+    --right 'duckdb:///data/rewrite.duckdb'             --right-table main.voyage_pnl \
     --key voyage_id \
-    --tolerance tce_usd_per_day=abs:1e-6 \
-    --report report.html
-# status: differs · 120,000,000 rows · 3 value differences in 2 columns · 41 queries · 38 s
-# exit code 1
+    --tolerance tce_usd_per_day=abs:1e-6
+status: differs · 1,204,311 left, 1,204,311 right rows · 3 differences (0 only left, 0 only right, 3 changed) · 41 queries · 2,766 rows fetched · 38s
+changed columns: tce_usd_per_day 2, port_costs 1
+
+changed    voyage_id=88213  tce_usd_per_day: 1.2873500000000000e+04 → 1.2873800000000000e+04
+…
+$ echo $?
+1
 ```
 
-> **Status: early development.** The canonical encoder, tolerance buckets, the DuckDB and PostgreSQL dialects, and the bisection search are built and tested against the real engines, including a DuckDB table diffed against a Postgres one. The `diff` command shown above is the design target ([ADR 0001](docs/adr/0001-comparison-model.md)): it still needs database drivers and the CLI.
+> **Status: early development.** Every part of `recon diff` is built and tested end to end against the real engines' clients, including a DuckDB table against a Postgres one. The database drivers (pgx, duckdb-go) come next; until then, a build of recon reports that it has no driver for the engine ([ADR 0007](docs/adr/0007-the-diff-command.md)).
 
 ## How it works
 
@@ -42,6 +46,7 @@ $ recon diff \
 - **One reference encoder, checked on real engines.** Each dialect's SQL runs on the engine itself, over thousands of generated rows and edge cases, and must match the Go encoder byte for byte; golden values come from an independent implementation. This found a Go standard-library bug on its first run ([ADR 0003](docs/adr/0003-conformance-against-real-engines.md)).
 - **Bisection pushed into the engines.** Disagreeing key ranges are split 16 ways per level, both sides queried in parallel, and rows fetched only for ranges of at most 1,000 rows: in tests, 3 changed rows in 100,000 are found by fetching 148. [ADR 0004](docs/adr/0004-segments-and-bisection.md)
 - **Schemas read, not written.** Columns come from each engine's `information_schema`, pair by name across case conventions, and compare an integer against a decimal or two decimal scales without rounding. Anything recon can't compare exactly is refused with the column, both types and what to do. [ADR 0006](docs/adr/0006-schema-matching.md)
+- **Exit codes CI can act on.** 0 equal, 1 differs, 3 incomplete (a limit left part uncompared, so equality isn't proven), 2 error; reports in text or versioned JSON. [ADR 0007](docs/adr/0007-the-diff-command.md)
 - **Standard Go, strictly checked.** The standard library first, two supported Go releases, race and fuzz tests, govulncheck, and static, reproducible, attested releases. Tool versions are pinned once, in `mise.toml`, for contributors and CI alike. [ADR 0002](docs/adr/0002-go-toolchain-and-layout.md), [ADR 0005](docs/adr/0005-tool-versions-with-mise.md)
 
 ## Why this exists

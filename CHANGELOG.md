@@ -38,6 +38,11 @@ All notable changes are recorded here. The format follows
 - Reports (`internal/report`): a text summary for people and a versioned JSON document
   for programs, with the verdict (`equal`, `differs` or `incomplete`), counts by kind and
   by column, and each difference's values decoded from the canonical encoding.
+- `recon diff` (ADR 0007): compares a table on one engine with a table on another,
+  given connection URLs, table names and the key, with `--exclude`, `--tolerance`, limits
+  and a timeout. Text or JSON reports, to standard output or a file. Exit codes 0 equal,
+  1 differs, 3 incomplete, 2 error. Passwords in URLs are redacted from every message.
+  Database drivers aren't included yet; the command says so.
 - `recon version` and `recon help`.
 
 ### Changed
