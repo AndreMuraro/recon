@@ -40,6 +40,34 @@ func (Postgres) SumText(expr string) string {
 	return fmt.Sprintf("CAST(sum(%s) AS text)", expr)
 }
 
+// StringLiteral implements [Dialect]: an escape string, whose meaning doesn't depend on
+// standard_conforming_strings.
+func (Postgres) StringLiteral(s string) string {
+	return "E'" + strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(s) + "'"
+}
+
+// ColumnType implements [Dialect].
+func (p Postgres) ColumnType(info *ColumnInfo) (canon.Type, int32, error) {
+	switch info.DataType {
+	case "smallint", "integer", "bigint":
+		return canon.TypeInt, 0, nil
+	case "numeric":
+		return decimalColumn(p, info)
+	case "real", "double precision":
+		return canon.TypeFloat, 0, nil
+	case "boolean":
+		return canon.TypeBool, 0, nil
+	case "date":
+		return canon.TypeDate, 0, nil
+	case "timestamp without time zone", "timestamp with time zone":
+		return canon.TypeTimestamp, 0, nil
+	case "text", "character varying", "character":
+		// character(n) is compared as Postgres reads it as text: without its padding.
+		return canon.TypeString, 0, nil
+	}
+	return canon.TypeInvalid, 0, unsupported(p, info, "")
+}
+
 // ValueText implements [Dialect].
 func (p Postgres) ValueText(col canon.Column, expr string) (string, error) {
 	var text string
