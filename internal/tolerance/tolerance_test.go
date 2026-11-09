@@ -89,7 +89,7 @@ func TestBucketText(t *testing.T) {
 		{"absolute positive", abs, 1.2, "~2"},
 		{"absolute negative", abs, -1.2, "~-3"},
 		{"absolute negative zero", abs, math.Copysign(0, -1), "~0"},
-		{"too large for absolute", abs, 1e300, "=1.0000000000000001e+300"},
+		{"too large for absolute", abs, 1e300, "=6724873095247260p944"},
 		{"relative zero", rel, 0, "~0~"},
 		{"relative negative zero", rel, math.Copysign(0, -1), "~0~"},
 		{"relative positive", rel, 1, "~0"},

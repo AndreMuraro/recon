@@ -57,7 +57,7 @@ checksum query per side. Each differing row costs O(log_b n) rounds of queries.
 
 **Row comparison is a merge join on the key.** A key on one side only is *missing left*
 or *missing right*. A key on both sides whose columns differ is *changed*, listing the
-columns. Tolerant floats are fetched exactly (`%.16e`, which round-trips), parsed, and
+columns. Tolerant floats are fetched exactly (their exact text, ADR 0009), parsed, and
 compared with `tolerance.Within`. A float that is within tolerance but in different
 buckets makes its segment look different and costs a row fetch, then compares equal.
 Every other column compares by its canonical text.

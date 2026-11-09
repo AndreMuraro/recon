@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+
+	"github.com/AndreMuraro/recon/internal/tolerance"
 )
 
 func TestSplit(t *testing.T) {
@@ -74,14 +76,17 @@ func FuzzSplit(f *testing.F) {
 	})
 }
 
+// exact is a float's canonical exact text.
+func exact(f float64) string { return string(tolerance.AppendExact(nil, f)) }
+
 func TestCompareRows(t *testing.T) {
 	t.Parallel()
 	cols := testSchema(t).Columns()
 	row := func(key int64, score string) Row {
 		return Row{Key: key, Values: []string{strconv.FormatInt(key, 10), "1.00", score, "a", "t", "2024-01-02", "0"}}
 	}
-	left := []Row{row(1, "1.0000000000000000e+00"), row(2, "nan"), row(3, `\N`), row(5, "inf"), row(6, "2.0000000000000000e+00")}
-	right := []Row{row(1, "1.0050000000000000e+00"), row(2, "nan"), row(3, "0.0000000000000000e+00"), row(4, "nan"), row(5, "-inf"), row(6, "3.0000000000000000e+00")}
+	left := []Row{row(1, exact(1)), row(2, "nan"), row(3, `\N`), row(5, "inf"), row(6, exact(2))}
+	right := []Row{row(1, exact(1.005)), row(2, "nan"), row(3, "0"), row(4, "nan"), row(5, "-inf"), row(6, exact(3))}
 	got, err := compareRows(cols, left, right)
 	if err != nil {
 		t.Fatal(err)

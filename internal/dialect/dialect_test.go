@@ -71,18 +71,15 @@ func TestUsesTheReferenceConstants(t *testing.T) {
 	t.Parallel()
 	abs := tolerance.Tolerance{Abs: 1e-6}
 	rel := tolerance.Tolerance{Rel: 1e-9}
-	exactFormat := map[string]string{
-		"duckdb":   "printf('%.16e'",
-		"postgres": "'9.9999999999999999EEEE'",
-	}
 	nullToken := map[string]string{"duckdb": `'\N'`, "postgres": `E'\\N'`}
 	tests := []struct {
 		name string
 		col  canon.Column
 		want func(Dialect) []string
 	}{
-		{"exact float", canon.Column{Type: canon.TypeFloat}, func(d Dialect) []string {
-			return []string{exactFormat[d.Name()], exactFloatText(0)}
+		{"exact float", canon.Column{Type: canon.TypeFloat}, func(Dialect) []string {
+			// The bounds of the exponent and significand in tolerance.AppendExact.
+			return []string{"THEN '0'", "'p'", "-1022", "- 52", "1023"}
 		}},
 		{"absolute bucket", canon.Column{Type: canon.TypeFloat, Tolerance: abs}, func(Dialect) []string {
 			return []string{floatLiteral(abs.AbsWidth()), floatLiteral(abs.AbsLimit())}

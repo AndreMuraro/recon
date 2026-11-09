@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -31,10 +30,6 @@ type Column struct {
 	// Tolerance applies to TypeFloat only. The zero value compares exactly.
 	Tolerance tolerance.Tolerance
 }
-
-// ExactFloatDigits is the number of significant digits in the canonical text of a float
-// compared without tolerance.
-const ExactFloatDigits = 17
 
 // Separator and escape bytes of the canonical form. NULL is written as the escape
 // followed by 'N', a sequence no escaped string can produce.
@@ -139,7 +134,7 @@ func (c Column) appendValue(dst []byte, v Value) ([]byte, error) {
 		if !c.Tolerance.IsExact() {
 			return c.Tolerance.Bucket(v.f).AppendText(dst), nil
 		}
-		return appendExactFloat(dst, v.f), nil
+		return tolerance.AppendExact(dst, v.f), nil
 	case TypeBool:
 		if v.i == 1 {
 			return append(dst, 't'), nil
@@ -185,25 +180,6 @@ func (v Value) decimalText() string {
 	col := Column{Name: "-", Type: TypeDecimal, Scale: v.sc}
 	b, _ := col.appendDecimal(nil, v)
 	return string(b)
-}
-
-// appendExactFloat writes f with 17 significant digits in scientific notation, correctly
-// rounded: the C format %.16e. Seventeen digits identify every float64, and a printf-style
-// format is something engines can produce exactly, where their shortest-digit printing
-// differs in layout (DuckDB prints 1e5 as "100000.0"). Negative zero is zero; NaN and the
-// infinities have fixed spellings, the same as in tolerance buckets.
-func appendExactFloat(dst []byte, f float64) []byte {
-	switch {
-	case math.IsNaN(f):
-		return append(dst, "nan"...)
-	case math.IsInf(f, 1):
-		return append(dst, "inf"...)
-	case math.IsInf(f, -1):
-		return append(dst, "-inf"...)
-	case f == 0:
-		f = 0 // drop the sign of negative zero
-	}
-	return strconv.AppendFloat(dst, f, 'e', ExactFloatDigits-1, 64)
 }
 
 // appendEscaped writes s with the escape and separator bytes escaped.

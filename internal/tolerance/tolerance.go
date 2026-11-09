@@ -175,9 +175,7 @@ func (b Bucket) AppendText(dst []byte) []byte {
 	case bucketNegInf:
 		return append(dst, "-inf"...)
 	case bucketExact:
-		// The canonical exact float (%.16e), so that SQL dialects can produce it.
-		dst = append(dst, '=')
-		return strconv.AppendFloat(dst, b.exact, 'e', 16, 64)
+		return AppendExact(append(dst, '='), b.exact)
 	default:
 		panic("tolerance: unknown bucket kind")
 	}

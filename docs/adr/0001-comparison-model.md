@@ -57,7 +57,7 @@ that produces the same bytes:
 |---|---|
 | Integer | Base-10 digits |
 | Decimal | Fixed scale, taken from the wider side's declared scale; no exponent |
-| Float | Tolerance bucket (section 3), or, when compared exactly, 17 significant digits in scientific notation, correctly rounded (C's `%.16e`). Engines print shortest digits in different layouts (DuckDB prints 1e5 as `100000.0`); a printf format they can produce exactly |
+| Float | Tolerance bucket (section 3), or, when compared exactly, the binary significand and exponent, `<m>p<q>` with x = m·2^q (ADR 0009). Decimal formats can't be reproduced across engines: C and Java round differently |
 | Date | `YYYY-MM-DD` |
 | Timestamp | Microseconds since the Unix epoch in UTC; naive timestamps are read as UTC unless `--tz` says otherwise |
 | Boolean | `t` / `f` |
