@@ -108,8 +108,8 @@ func env(vars map[string]string) func(string) string {
 
 func TestSnowflakeDSN(t *testing.T) {
 	t.Parallel()
-	const pw = "p@ss+w:rd%/?"
-	tests := []struct { //nolint:gosec // made-up passwords, to test escaping
+	const pw = "p@ss+w:rd%/?" //nolint:gosec // a made-up password, to test escaping
+	tests := []struct {
 		url, password, want string
 	}{
 		{
@@ -123,7 +123,7 @@ func TestSnowflakeDSN(t *testing.T) {
 		},
 		{
 			// The URL's password wins over the environment's.
-			url:      "snowflake://ETL:in%20url@acct",
+			url:      "snowflake://ETL:in%20url@acct", //nolint:gosec // a made-up password
 			password: "ignored",
 			want:     "ETL:in+url@acct",
 		},
