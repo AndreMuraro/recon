@@ -89,7 +89,7 @@ func snowflakeDSN(u *url.URL, _ string, getenv func(string) string) (string, err
 		b.WriteString(":" + url.QueryEscape(pw))
 	}
 	b.WriteString("@" + u.Host)
-	for _, part := range strings.Split(strings.Trim(u.Path, "/"), "/") {
+	for part := range strings.SplitSeq(strings.Trim(u.Path, "/"), "/") {
 		if part != "" {
 			b.WriteString("/" + url.QueryEscape(part))
 		}

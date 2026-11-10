@@ -109,14 +109,24 @@ func env(vars map[string]string) func(string) string {
 func TestSnowflakeDSN(t *testing.T) {
 	t.Parallel()
 	const pw = "p@ss+w:rd%/?"
-	tests := []struct {
+	tests := []struct { //nolint:gosec // made-up passwords, to test escaping
 		url, password, want string
 	}{
-		{"snowflake://ETL@myorg-acct/ANALYTICS/FINANCE?warehouse=WH", pw,
-			"ETL:" + url.QueryEscape(pw) + "@myorg-acct/ANALYTICS/FINANCE?warehouse=WH"},
-		{"snowflake://ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser", "",
-			"ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser"},
-		{"snowflake://ETL:in%20url@acct", "ignored", "ETL:in+url@acct"}, // the URL's password wins
+		{
+			url:      "snowflake://ETL@myorg-acct/ANALYTICS/FINANCE?warehouse=WH",
+			password: pw,
+			want:     "ETL:" + url.QueryEscape(pw) + "@myorg-acct/ANALYTICS/FINANCE?warehouse=WH",
+		},
+		{
+			url:  "snowflake://ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
+			want: "ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
+		},
+		{
+			// The URL's password wins over the environment's.
+			url:      "snowflake://ETL:in%20url@acct",
+			password: "ignored",
+			want:     "ETL:in+url@acct",
+		},
 	}
 	for _, tt := range tests {
 		e, u, err := parse(tt.url)
@@ -154,10 +164,15 @@ func TestDatabricksDSN(t *testing.T) {
 	tests := []struct {
 		url, token, want string
 	}{
-		{"databricks://adb-1.2.azuredatabricks.net/sql/1.0/warehouses/abc?catalog=main", "dapi123",
-			"token:dapi123@adb-1.2.azuredatabricks.net:443/sql/1.0/warehouses/abc?catalog=main"},
-		{"databricks://host:8443/sql/1.0/warehouses/abc?authType=OauthU2M", "",
-			"host:8443/sql/1.0/warehouses/abc?authType=OauthU2M"},
+		{
+			url:   "databricks://adb-1.2.azuredatabricks.net/sql/1.0/warehouses/abc?catalog=main",
+			token: "dapi123",
+			want:  "token:dapi123@adb-1.2.azuredatabricks.net:443/sql/1.0/warehouses/abc?catalog=main",
+		},
+		{
+			url:  "databricks://host:8443/sql/1.0/warehouses/abc?authType=OauthU2M",
+			want: "host:8443/sql/1.0/warehouses/abc?authType=OauthU2M",
+		},
 	}
 	for _, tt := range tests {
 		e, u, err := parse(tt.url)
