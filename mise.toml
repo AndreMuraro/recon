@@ -5,12 +5,12 @@
 #
 # The test matrix in CI still installs Go with actions/setup-go, to test both supported
 # releases (ADR 0002); the version here is the one everything else uses.
-min_version = "2026.11.4"
+min_version = "2026.11.1"
 
 # mise.lock records each tool's download URL and checksum per platform; jdx/mise-action
 # installs with --locked when it is present. Regenerate it with `mise lock` after
-# changing a version. It is lockfile format 4, which mise reads from 2026.11.1: CI's mise
-# version and min_version must stay at or above that.
+# changing a version. It is lockfile format 4, which mise reads from 2026.11.1, so
+# min_version is the oldest mise that can use it, not the version CI happens to pin.
 [settings]
 lockfile = true
 lockfile_platforms = ["linux-x64", "linux-arm64", "macos-arm64", "windows-x64"]
