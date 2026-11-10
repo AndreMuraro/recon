@@ -16,7 +16,7 @@ locally on one version and fail CI on another.
   [mise](https://mise.jdx.dev) installs them on Linux, macOS and Windows; contributors run
   `mise install`, and `mise run check` runs what CI runs.
 - **CI installs the same file** with `jdx/mise-action`, pinned to a commit SHA and to a
-  mise version (`min_version` in `mise.toml` matches it). Jobs install only the tools they
+  mise version. Jobs install only the tools they
   use. Jobs that build release binaries, and the release workflow, don't use a cache.
 - **`mise.lock` records each tool's download URL and checksum** for Linux, macOS and
   Windows. mise-action installs with `--locked` when it exists, so a tool whose download
@@ -24,10 +24,12 @@ locally on one version and fail CI on another.
 - **The test matrix keeps `actions/setup-go`.** It tests both supported Go releases at
   their latest patch (ADR 0002), which is a different job from installing one pinned
   toolchain.
-- **mise's own version moves with the lockfile format.** mise 2026.11.1 writes lockfile
-  format 4, which older releases refuse to read. `min_version` in `mise.toml` and the
-  version mise-action installs are kept at or above the release that wrote `mise.lock`,
-  so a contributor on an older mise is told to upgrade instead of installing unverified.
+- **mise's own version follows the lockfile format.** mise 2026.11.1 writes lockfile
+  format 4, which older releases refuse to read. `min_version` in `mise.toml` is the
+  oldest release that reads it, so a contributor on an older mise is told to upgrade
+  instead of installing unverified, and one on any newer mise isn't stopped. CI pins its
+  own version, at or above that. (`min_version` first matched CI's pin, 2026.11.4, which
+  refused contributors on 2026.11.3, a release that reads the lockfile perfectly well.)
 - **Updates are deliberate.** Dependabot doesn't read `mise.toml`. `mise outdated` lists
   newer releases, and `mise upgrade --bump` updates the pins, followed by `mise lock`.
   Dependabot still updates Go modules and Actions, mise-action included.
