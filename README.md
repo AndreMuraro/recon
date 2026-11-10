@@ -7,9 +7,10 @@
 You rewrote a Snowflake stored procedure as a Databricks job, or a legacy SQL view as Python. Before switching over, you need evidence that every row, across the full history, comes out the same, within the floating-point noise a rewrite legitimately introduces. recon compares the two tables where they live and reports exactly which rows and columns differ.
 
 ```console
+$ export SNOWFLAKE_PASSWORD=… DATABRICKS_TOKEN=…
 $ recon diff \
-    --left  'postgres://etl@warehouse:5432/analytics' --left-table finance.voyage_pnl \
-    --right 'duckdb:///data/rewrite.duckdb'             --right-table main.voyage_pnl \
+    --left  'snowflake://ETL@myorg-acct/ANALYTICS?warehouse=RECON_WH'       --left-table FINANCE.VOYAGE_PNL \
+    --right 'databricks://adb-123.azuredatabricks.net/sql/1.0/warehouses/9f2c' --right-table main.finance.voyage_pnl \
     --key voyage_id \
     --tolerance tce_usd_per_day=abs:1e-6
 status: differs · 1,204,311 left, 1,204,311 right rows · 3 differences (0 only left, 0 only right, 3 changed) · 41 queries · 2,766 rows fetched · 38s
@@ -21,7 +22,7 @@ $ echo $?
 1
 ```
 
-> **Status: early development.** `recon diff` works on PostgreSQL today, through the pgx driver ([ADR 0008](docs/adr/0008-postgres-driver.md)), and is tested end to end on Postgres 15 to 18. The SQL for DuckDB, Snowflake and Databricks is written and checked against the same reference ([ADR 0010](docs/adr/0010-snowflake-and-databricks.md)); their drivers come next.
+> **Status: early development.** `recon diff` connects to PostgreSQL, Snowflake and Databricks ([ADR 0011](docs/adr/0011-snowflake-and-databricks-drivers.md)). It is tested end to end on Postgres 15 to 18; the Snowflake and Databricks SQL is checked against the same reference, on Spark for Databricks, but CI can't reach either service. DuckDB's driver needs cgo and comes in a separate build.
 
 ## How it works
 
@@ -36,8 +37,8 @@ $ echo $?
 |---|---|---|---|
 | PostgreSQL 14+ | pgx | yes | works: `recon diff` tested end to end on 15–18 |
 | DuckDB (and local Parquet/CSV) | duckdb-go (cgo) | per-platform builds | SQL dialect conforms; driver planned |
-| Snowflake | gosnowflake | yes | SQL dialect written; its conformance script is run by hand; driver planned |
-| Databricks | databricks-sql-go | yes | SQL dialect conforms on Spark 3.5 and 4 in CI; driver planned |
+| Snowflake | gosnowflake | yes | dialect and driver in; conformance script run by hand |
+| Databricks | databricks-sql-go | yes | dialect and driver in; dialect conforms on Spark 3.5 and 4 in CI |
 
 ## Decisions
 

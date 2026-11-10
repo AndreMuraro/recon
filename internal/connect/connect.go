@@ -1,6 +1,6 @@
 // Package connect opens a connection to an engine from a URL: the URL's scheme picks the
-// SQL dialect and the database/sql driver (ADR 0007). Drivers are compiled in by build;
-// a build without an engine's driver says so instead of failing obscurely.
+// SQL dialect and the database/sql driver (ADR 0007, ADR 0011). Drivers are compiled in
+// by build; a build without an engine's driver says so instead of failing obscurely.
 package connect
 
 import (
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 
@@ -36,16 +37,21 @@ type Opener func(ctx context.Context, rawURL string) (*Conn, error)
 // engine is a URL scheme recon understands.
 type engine struct {
 	dialect dialect.Dialect
-	driver  string                              // database/sql driver name
-	dsn     func(u *url.URL, raw string) string // the driver's data source name
+	driver  string // database/sql driver name
+	// dsn returns the driver's data source name. getenv reads credentials the URL leaves
+	// out, from the variables each engine's own tools use.
+	dsn func(u *url.URL, raw string, getenv func(string) string) (string, error)
 }
 
+func passThrough(_ *url.URL, raw string, _ func(string) string) (string, error) { return raw, nil }
+
 var engines = map[string]engine{
-	"postgres":   {dialect.Postgres{}, "pgx", func(_ *url.URL, raw string) string { return raw }},
-	"postgresql": {dialect.Postgres{}, "pgx", func(_ *url.URL, raw string) string { return raw }},
+	// pgx reads PGPASSWORD and .pgpass itself.
+	"postgres":   {dialect.Postgres{}, "pgx", passThrough},
+	"postgresql": {dialect.Postgres{}, "pgx", passThrough},
 	// duckdb:///abs/path.duckdb or duckdb:relative/path.duckdb; the query string is
 	// passed to the driver as its options.
-	"duckdb": {dialect.DuckDB{}, "duckdb", func(u *url.URL, _ string) string {
+	"duckdb": {dialect.DuckDB{}, "duckdb", func(u *url.URL, _ string, _ func(string) string) (string, error) {
 		path := u.Opaque
 		if path == "" {
 			path = u.Path
@@ -53,8 +59,67 @@ var engines = map[string]engine{
 		if u.RawQuery != "" {
 			path += "?" + u.RawQuery
 		}
-		return path
+		return path, nil
 	}},
+	"snowflake":  {dialect.Snowflake{}, "snowflake", snowflakeDSN},
+	"databricks": {dialect.Databricks{}, "databricks", databricksDSN},
+}
+
+// snowflakeDSN turns snowflake://user@account/database/schema?warehouse=… into
+// gosnowflake's user:password@account/database/schema?warehouse=…. The password comes
+// from SNOWFLAKE_PASSWORD unless the URL has one or names another authenticator
+// (externalbrowser, SNOWFLAKE_JWT, …).
+func snowflakeDSN(u *url.URL, _ string, getenv func(string) string) (string, error) {
+	if u.User == nil || u.User.Username() == "" || u.Host == "" {
+		return "", fmt.Errorf("%w: a Snowflake URL is snowflake://user@account/database/schema?warehouse=…", ErrURL)
+	}
+	user := u.User
+	if _, hasPassword := user.Password(); !hasPassword && u.Query().Get("authenticator") == "" {
+		pw := getenv("SNOWFLAKE_PASSWORD")
+		if pw == "" {
+			return "", fmt.Errorf("%w: set SNOWFLAKE_PASSWORD, or an authenticator in the URL", ErrURL)
+		}
+		user = url.UserPassword(user.Username(), pw)
+	}
+	// gosnowflake splits the DSN at the last '@' and query-unescapes each part, so every
+	// part is query-escaped, as its own Config.DSN does.
+	var b strings.Builder
+	b.WriteString(url.QueryEscape(user.Username()))
+	if pw, ok := user.Password(); ok {
+		b.WriteString(":" + url.QueryEscape(pw))
+	}
+	b.WriteString("@" + u.Host)
+	for part := range strings.SplitSeq(strings.Trim(u.Path, "/"), "/") {
+		if part != "" {
+			b.WriteString("/" + url.QueryEscape(part))
+		}
+	}
+	if u.RawQuery != "" {
+		b.WriteString("?" + u.RawQuery)
+	}
+	return b.String(), nil
+}
+
+// databricksDSN turns databricks://host/sql/1.0/warehouses/id?catalog=… into
+// databricks-sql-go's token:TOKEN@host:443/sql/1.0/warehouses/id?catalog=…. The token
+// comes from DATABRICKS_TOKEN unless the URL has one or names another authType (OAuth).
+func databricksDSN(u *url.URL, _ string, getenv func(string) string) (string, error) {
+	if u.Hostname() == "" || u.Path == "" || u.Path == "/" {
+		return "", fmt.Errorf("%w: a Databricks URL is databricks://host/sql/1.0/warehouses/id, the warehouse's HTTP path", ErrURL)
+	}
+	host := u.Host
+	if u.Port() == "" {
+		host += ":443"
+	}
+	user := u.User
+	if _, hasToken := user.Password(); !hasToken && u.Query().Get("authType") == "" {
+		token := getenv("DATABRICKS_TOKEN")
+		if token == "" {
+			return "", fmt.Errorf("%w: set DATABRICKS_TOKEN, or an authType in the URL", ErrURL)
+		}
+		user = url.UserPassword("token", token)
+	}
+	return strings.TrimPrefix((&url.URL{User: user, Host: host, Path: u.Path, RawQuery: u.RawQuery}).String(), "//"), nil
 }
 
 // Schemes lists the URL schemes recon understands.
@@ -99,7 +164,11 @@ func Open(ctx context.Context, rawURL string) (*Conn, error) {
 		return nil, fmt.Errorf("%w: %s needs the %s driver, which this build of recon doesn't include (ADR 0007)",
 			ErrNoDriver, e.dialect.Name(), e.driver)
 	}
-	db, err := sql.Open(e.driver, e.dsn(u, rawURL))
+	dsn, err := e.dsn(u, rawURL, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(e.driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", Redact(rawURL), err)
 	}

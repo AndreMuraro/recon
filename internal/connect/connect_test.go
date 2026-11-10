@@ -3,9 +3,12 @@ package connect
 import (
 	"database/sql"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/snowflakedb/gosnowflake/v2"
 
 	"github.com/AndreMuraro/recon/internal/dialect"
 )
@@ -51,7 +54,7 @@ func TestParse(t *testing.T) {
 		}
 	}
 	_, err := Parse("mysql://user:hunter2@h/db")
-	if !errors.Is(err, ErrURL) || !strings.Contains(err.Error(), "duckdb, postgres, postgresql") {
+	if !errors.Is(err, ErrURL) || !strings.Contains(err.Error(), "databricks, duckdb, postgres, postgresql, snowflake") {
 		t.Errorf("unknown scheme: %v", err)
 	}
 	if strings.Contains(err.Error(), "hunter2") {
@@ -73,7 +76,7 @@ func TestDuckDBDataSourceName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := e.dsn(u, url); got != want {
+		if got, err := e.dsn(u, url, noEnv); err != nil || got != want {
 			t.Errorf("%s: DSN %q, want %q", url, got, want)
 		}
 	}
@@ -94,5 +97,100 @@ func TestRedact(t *testing.T) {
 	t.Parallel()
 	if got := Redact("postgres://u:hunter2@h/db"); strings.Contains(got, "hunter2") || !strings.Contains(got, "u:xxxxx@h") {
 		t.Errorf("Redact = %q", got)
+	}
+}
+
+func noEnv(string) string { return "" }
+
+func env(vars map[string]string) func(string) string {
+	return func(k string) string { return vars[k] }
+}
+
+func TestSnowflakeDSN(t *testing.T) {
+	t.Parallel()
+	const pw = "p@ss+w:rd%/?" //nolint:gosec // a made-up password, to test escaping
+	tests := []struct {
+		url, password, want string
+	}{
+		{
+			url:      "snowflake://ETL@myorg-acct/ANALYTICS/FINANCE?warehouse=WH",
+			password: pw,
+			want:     "ETL:" + url.QueryEscape(pw) + "@myorg-acct/ANALYTICS/FINANCE?warehouse=WH",
+		},
+		{
+			url:  "snowflake://ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
+			want: "ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
+		},
+		{ //nolint:gosec // a made-up password in a URL
+			// The URL's password wins over the environment's.
+			url:      "snowflake://ETL:in%20url@acct",
+			password: "ignored",
+			want:     "ETL:in+url@acct",
+		},
+	}
+	for _, tt := range tests {
+		e, u, err := parse(tt.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := e.dsn(u, tt.url, env(map[string]string{"SNOWFLAKE_PASSWORD": tt.password}))
+		if err != nil || got != tt.want {
+			t.Errorf("%s: %q, %v; want %q", tt.url, got, err, tt.want)
+			continue
+		}
+		// gosnowflake reads back the same user and password.
+		cfg, err := gosnowflake.ParseDSN(got)
+		if err != nil {
+			t.Errorf("gosnowflake can't parse %q: %v", got, err)
+			continue
+		}
+		if cfg.User != "ETL" || (tt.password == pw && cfg.Password != pw) {
+			t.Errorf("gosnowflake read user %q, password %q", cfg.User, cfg.Password)
+		}
+	}
+	for _, bad := range []string{"snowflake://acct/db", "snowflake://ETL@acct/db"} {
+		e, u, err := parse(bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.dsn(u, bad, noEnv); !errors.Is(err, ErrURL) {
+			t.Errorf("%s: got %v, want %v", bad, err, ErrURL)
+		}
+	}
+}
+
+func TestDatabricksDSN(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		url, token, want string
+	}{
+		{
+			url:   "databricks://adb-1.2.azuredatabricks.net/sql/1.0/warehouses/abc?catalog=main",
+			token: "dapi123",
+			want:  "token:dapi123@adb-1.2.azuredatabricks.net:443/sql/1.0/warehouses/abc?catalog=main",
+		},
+		{
+			url:  "databricks://host:8443/sql/1.0/warehouses/abc?authType=OauthU2M",
+			want: "host:8443/sql/1.0/warehouses/abc?authType=OauthU2M",
+		},
+	}
+	for _, tt := range tests {
+		e, u, err := parse(tt.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := e.dsn(u, tt.url, env(map[string]string{"DATABRICKS_TOKEN": tt.token}))
+		if err != nil || got != tt.want {
+			t.Errorf("%s: %q, %v; want %q", tt.url, got, err, tt.want)
+		}
+	}
+	for _, bad := range []string{"databricks://host", "databricks://host/sql/1.0/warehouses/abc"} {
+		e, u, err := parse(bad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.dsn(u, bad, noEnv); !errors.Is(err, ErrURL) {
+			t.Errorf("%s: got %v, want %v", bad, err, ErrURL)
+		}
 	}
 }

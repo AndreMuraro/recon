@@ -28,9 +28,13 @@ the rows that differ. Columns are paired by name, ignoring case.
 Exit codes: 0 the tables are equal, 1 they differ, 3 no difference was found but a
 limit left part of the tables uncompared, 2 an error.
 
-Connection URLs:
-  postgres://user@host:5432/db?sslmode=require   (the password from PGPASSWORD)
-  duckdb:///path/to/file.duckdb
+Connection URLs, with credentials from the environment rather than the command line:
+  postgres://user@host:5432/db?sslmode=require            PGPASSWORD, or ~/.pgpass
+  snowflake://user@account/database/schema?warehouse=WH   SNOWFLAKE_PASSWORD, or
+                                                          ?authenticator=externalbrowser
+  databricks://host/sql/1.0/warehouses/ID?catalog=main    DATABRICKS_TOKEN, or
+                                                          ?authType=OauthU2M
+  duckdb:///path/to/file.duckdb                           (not in the default build)
 
 Flags:
 `
