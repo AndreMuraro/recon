@@ -121,9 +121,9 @@ func TestSnowflakeDSN(t *testing.T) {
 			url:  "snowflake://ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
 			want: "ETL@myorg-acct/ANALYTICS?authenticator=externalbrowser",
 		},
-		{
+		{ //nolint:gosec // a made-up password in a URL
 			// The URL's password wins over the environment's.
-			url:      "snowflake://ETL:in%20url@acct", //nolint:gosec // a made-up password
+			url:      "snowflake://ETL:in%20url@acct",
 			password: "ignored",
 			want:     "ETL:in+url@acct",
 		},
