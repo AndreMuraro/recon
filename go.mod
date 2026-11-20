@@ -5,7 +5,7 @@ go 1.26.0
 
 require (
 	github.com/databricks/databricks-sql-go v1.17.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/snowflakedb/gosnowflake/v2 v2.4.0
 )
 
